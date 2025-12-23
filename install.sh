@@ -2,9 +2,9 @@
 set -e
 
 # a2adb-tester installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/OWNER/a2adb-tester/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/iluxav/a2adb-tester/main/install.sh | bash
 
-REPO="OWNER/a2adb-tester"  # Change OWNER to your GitHub username/org
+REPO="iluxav/a2adb-tester"
 BINARY_NAME="a2adb-tester"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
