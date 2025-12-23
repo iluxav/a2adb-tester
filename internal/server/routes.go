@@ -171,7 +171,7 @@ func (s *FiberServer) StatsHandler(c *fiber.Ctx) error {
 
 	var wg sync.WaitGroup
 	results := make([]statsResult, len(s.statsURLs))
-	httpClient := &http.Client{Timeout: 2 * time.Second}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	for i, url := range s.statsURLs {
 		wg.Add(1)
