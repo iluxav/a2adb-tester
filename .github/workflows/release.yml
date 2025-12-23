@@ -1,0 +1,60 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="dev-$(echo ${{ github.sha }} | cut -c1-7)"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" \
+            -o "dist/a2adb-tester" ./cmd/api
+          cd dist && sha256sum "a2adb-tester" > "a2adb-tester.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: a2adb-tester-linux-amd64
+          path: dist/*
+
+      - name: Update latest release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          name: Latest Build
+          draft: false
+          prerelease: true
+          files: dist/*
+          body: |
+            Latest build from ${{ github.ref_name }} branch
+            Commit: ${{ github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
