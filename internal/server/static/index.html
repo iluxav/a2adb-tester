@@ -11,11 +11,11 @@
         .container { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; padding: 20px; }
         .panel { background: #16213e; border-radius: 8px; padding: 20px; }
         h2 { margin-bottom: 15px; color: #0f9; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; }
-        .keys-list { max-height: 70vh; overflow-y: auto; }
+        .keys-list { max-height: 55vh; overflow-y: auto; }
         .key-item { padding: 8px 12px; background: #0d1b3e; margin-bottom: 5px; border-radius: 4px; font-family: monospace; font-size: 0.9rem; }
         label { display: block; margin-bottom: 5px; color: #888; font-size: 0.85rem; }
-        select, input, button { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #2a3f5f; border-radius: 4px; background: #0d1b3e; color: #eee; font-size: 1rem; }
-        select:focus, input:focus { outline: none; border-color: #0f9; }
+        select, input, button, textarea { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #2a3f5f; border-radius: 4px; background: #0d1b3e; color: #eee; font-size: 1rem; font-family: inherit; }
+        select:focus, input:focus, textarea:focus { outline: none; border-color: #0f9; }
         button { background: #0f9; color: #000; font-weight: bold; cursor: pointer; border: none; transition: background 0.2s; }
         button:hover { background: #0da; }
         .btn-secondary { background: #2a3f5f; color: #eee; }
@@ -41,19 +41,26 @@
     <div class="container" x-data="app()">
         <!-- Left Column: Keys List -->
         <div class="panel">
-            <h2>All Keys</h2>
-            <select x-model="keysDbIndex" @change="fetchKeys()">
-                <template x-for="(db, i) in databases" :key="i">
-                    <option :value="i" x-text="'DB ' + i + ' - ' + db.address"></option>
-                </template>
-            </select>
+            <h2>All Keys (All DBs)</h2>
             <div class="keys-list">
-                <template x-for="key in keys" :key="key">
-                    <div class="key-item" x-text="key"></div>
+                <template x-for="item in keys" :key="item.key">
+                    <div class="key-item" @click="selectKey(item.key)" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                        <span x-text="item.key" style="flex: 1; overflow: hidden; text-overflow: ellipsis;"></span>
+                        <span style="display: flex; gap: 4px; margin-left: 8px; align-items: center;">
+                            <template x-for="dbIdx in totalDbs" :key="dbIdx">
+                                <span
+                                    :style="'padding: 4px 6px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; ' + (item.databases.includes(dbIdx) ? 'background: #0f9; color: #000;' : 'background: #333; color: #667;')"
+                                    x-text="'DB ' + dbIdx"></span>
+                            </template>
+                            <button @click.stop="deleteKey(item.key)" style="padding: 2px 6px; margin: 0; width: auto; background: #f66; font-size: 0.7rem;">X</button>
+                        </span>
+                    </div>
                 </template>
                 <div x-show="keys.length === 0" class="status">No keys found</div>
             </div>
-            <div class="status">Last updated: <span x-text="keysUpdated"></span></div>
+            <div class="status">
+                <span x-text="keys.length"></span> keys | Last updated: <span x-text="keysUpdated"></span>
+            </div>
         </div>
 
         <!-- Middle Column: Redis Operation -->
@@ -62,6 +69,7 @@
 
             <label>Operation</label>
             <select x-model="operation" :disabled="loadTestRunning">
+                <option value="set">SET (set value)</option>
                 <option value="incrby">INCRBY (increment by)</option>
                 <option value="decrby">DECRBY (decrement by)</option>
                 <option value="expire">EXPIRE (seconds)</option>
@@ -85,8 +93,9 @@
             <label>Key</label>
             <input type="text" x-model="opKey" placeholder="Enter key name" :disabled="loadTestRunning">
 
-            <label x-text="operation === 'expire' ? 'TTL (seconds)' : operation === 'pexpire' ? 'TTL (milliseconds)' : 'Value'"></label>
-            <input type="number" x-model="opValue" placeholder="1" :disabled="loadTestRunning">
+            <label x-text="operation === 'expire' ? 'TTL (seconds)' : operation === 'pexpire' ? 'TTL (milliseconds)' : operation === 'set' ? 'Value' : 'Amount'"></label>
+            <textarea x-show="operation === 'set'" x-model="opStrValue" placeholder="Enter value (supports JSON)" :disabled="loadTestRunning" style="min-height: 80px; resize: vertical;"></textarea>
+            <input x-show="operation !== 'set'" type="number" x-model="opValue" placeholder="1" :disabled="loadTestRunning">
 
             <!-- Load Test Mode Toggle -->
             <label style="display: flex; align-items: center; gap: 8px; margin: 15px 0; cursor: pointer; padding: 10px; background: #0d1b3e; border-radius: 4px;">
@@ -189,7 +198,7 @@
                         <div class="value"
                              :class="result.error ? 'error' : ''"
                              :style="!result.error && !watchValuesMatch() && result.value !== getExpectedValue() ? 'color: #f66;' : (!result.error ? 'color: #0f9;' : '')"
-                             x-text="result.error || result.value"></div>
+                             x-text="result.error || formatValue(result.value)"></div>
                     </div>
                 </template>
             </div>
@@ -276,9 +285,9 @@
                                 <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.info || 0).toLocaleString() : '-'"></td>
                                 <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.other || 0).toLocaleString() : '-'"></td>
                                 <!-- Latency -->
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.incr || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.get || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.set || 0).toLocaleString() : '-'"></td>
+                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.incr || 0).toLocaleString() + ' µs' : '-'"></td>
+                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.get || 0).toLocaleString() + ' µs' : '-'"></td>
+                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.set || 0).toLocaleString() + ' µs' : '-'"></td>
                                 <!-- Replication -->
                                 <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.replication?.deltas_sent || 0).toLocaleString() : '-'"></td>
                                 <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.replication?.deltas_received || 0).toLocaleString() : '-'"></td>
@@ -296,6 +305,85 @@
 
             <div class="status" x-show="statsUpdated">Last updated: <span x-text="statsUpdated"></span></div>
         </div>
+
+        <!-- Instrumentation Metrics Panel - Full Width -->
+        <div class="panel" style="grid-column: 1 / -1;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0;">Instrumentation Metrics</h2>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 5px; margin: 0; cursor: pointer;">
+                        <input type="checkbox" x-model="metricsAutoRefresh" @change="toggleMetricsRefresh()" style="width: auto; margin: 0;">
+                        <span style="font-size: 0.85rem;">Auto-refresh</span>
+                    </label>
+                    <button @click="fetchMetrics()" class="btn-secondary" style="width: auto; padding: 5px 15px; margin: 0;">Refresh</button>
+                </div>
+            </div>
+
+            <!-- Active Load Tests Indicator -->
+            <div x-show="instrumentMetrics.active_load_tests > 0" style="margin-bottom: 15px; padding: 10px; background: #3d2a0a; border-radius: 4px; color: #f90;">
+                Active Load Tests: <span x-text="instrumentMetrics.active_load_tests"></span>
+            </div>
+
+            <!-- Metrics Table -->
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; white-space: nowrap;">
+                    <thead>
+                        <tr style="background: #0d1b3e; text-align: left;">
+                            <th style="padding: 8px; color: #0f9; position: sticky; left: 0; background: #0d1b3e;">Database</th>
+                            <th style="padding: 8px; text-align: center; color: #888;" colspan="3">Connection Pool</th>
+                            <th style="padding: 8px; text-align: center; color: #888;" colspan="2">Totals</th>
+                            <th style="padding: 8px; text-align: center; color: #888;">Commands</th>
+                        </tr>
+                        <tr style="background: #16213e;">
+                            <th style="padding: 8px; position: sticky; left: 0; background: #16213e;"></th>
+                            <th style="padding: 8px; text-align: center;">Size</th>
+                            <th style="padding: 8px; text-align: center;">Idle</th>
+                            <th style="padding: 8px; text-align: center;">Active</th>
+                            <th style="padding: 8px; text-align: center;">Calls</th>
+                            <th style="padding: 8px; text-align: center;">Errors</th>
+                            <th style="padding: 8px; text-align: left;">Details (per command)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="(db, i) in instrumentMetrics.databases || []" :key="i">
+                            <tr style="border-bottom: 1px solid #2a3f5f; vertical-align: top;">
+                                <td style="padding: 8px; position: sticky; left: 0; background: #16213e;">
+                                    <span style="color: #0f9; font-weight: bold;">DB <span x-text="db.db_index"></span></span>
+                                    <br><span style="font-size: 0.75rem; color: #888;" x-text="db.address"></span>
+                                </td>
+                                <!-- Pool Stats -->
+                                <td style="padding: 8px; text-align: center;" x-text="db.pool_size || 0"></td>
+                                <td style="padding: 8px; text-align: center; color: #888;" x-text="db.pool_idle || 0"></td>
+                                <td style="padding: 8px; text-align: center; color: #0f9;" x-text="db.pool_active || 0"></td>
+                                <!-- Totals -->
+                                <td style="padding: 8px; text-align: center; font-weight: bold;" x-text="(db.total_calls || 0).toLocaleString()"></td>
+                                <td style="padding: 8px; text-align: center;" :style="(db.total_errors || 0) > 0 ? 'color: #f66;' : ''" x-text="(db.total_errors || 0).toLocaleString()"></td>
+                                <!-- Commands Detail -->
+                                <td style="padding: 8px;">
+                                    <div x-show="!db.commands || db.commands.length === 0" style="color: #666;">No commands recorded</div>
+                                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                        <template x-for="cmd in db.commands || []" :key="cmd.command">
+                                            <div style="background: #0d1b3e; padding: 6px 10px; border-radius: 4px; min-width: 150px;">
+                                                <div style="color: #0f9; font-weight: bold; margin-bottom: 4px;" x-text="cmd.command"></div>
+                                                <div style="font-size: 0.75rem; color: #aaa; display: grid; grid-template-columns: 1fr 1fr; gap: 2px;">
+                                                    <span>Calls:</span><span style="color: #fff;" x-text="cmd.total_calls.toLocaleString()"></span>
+                                                    <span>Errors:</span><span :style="cmd.error_count > 0 ? 'color: #f66;' : 'color: #fff;'" x-text="cmd.error_count.toLocaleString()"></span>
+                                                    <span>Avg:</span><span style="color: #fff;" x-text="(cmd.avg_latency_us / 1000).toFixed(2) + ' ms'"></span>
+                                                    <span>Min:</span><span style="color: #fff;" x-text="(cmd.min_latency_us / 1000).toFixed(2) + ' ms'"></span>
+                                                    <span>Max:</span><span style="color: #fff;" x-text="(cmd.max_latency_us / 1000).toFixed(2) + ' ms'"></span>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="status" x-show="metricsUpdated">Last updated: <span x-text="metricsUpdated"></span></div>
+        </div>
     </div>
 
     <script>
@@ -303,14 +391,15 @@
             return {
                 databases: [],
                 keys: [],
-                keysDbIndex: 0,
                 keysUpdated: '-',
                 keysInterval: null,
+                totalDbs: [],
 
                 operation: 'incrby',
                 opDbIndex: 0,
                 opKey: '',
                 opValue: 1,
+                opStrValue: '',
                 opResult: '',
                 opError: false,
                 opAllDbs: false,
@@ -338,10 +427,17 @@
                 statsAutoRefresh: false,
                 statsInterval: null,
 
+                // Instrumentation metrics state
+                instrumentMetrics: { databases: [], active_load_tests: 0 },
+                metricsUpdated: '',
+                metricsAutoRefresh: false,
+                metricsInterval: null,
+
                 async init() {
                     await this.fetchHealth();
                     this.fetchKeys();
                     this.fetchStats();
+                    this.fetchMetrics();
                     this.keysInterval = setInterval(() => this.fetchKeys(), 1000);
                 },
 
@@ -350,6 +446,7 @@
                         const res = await fetch('/health');
                         const data = await res.json();
                         this.databases = data.databases || [];
+                        this.totalDbs = this.databases.map((_, i) => i);
                     } catch (e) {
                         console.error('Health check failed:', e);
                     }
@@ -357,14 +454,35 @@
 
                 async fetchKeys() {
                     try {
-                        const res = await fetch('/api/keys', {
-                            headers: { 'X-DB': String(this.keysDbIndex) }
-                        });
+                        const res = await fetch('/api/keys/all');
                         const data = await res.json();
                         this.keys = data.keys || [];
                         this.keysUpdated = new Date().toLocaleTimeString();
                     } catch (e) {
                         console.error('Fetch keys failed:', e);
+                    }
+                },
+
+                async selectKey(key) {
+                    this.opKey = key;
+                    this.watchKey = key;
+                    await this.fetchWatchKey();
+                },
+
+                async deleteKey(key) {
+                    if (!confirm(`Delete "${key}" from all databases?`)) return;
+                    try {
+                        const res = await fetch(`/api/key/${encodeURIComponent(key)}`, {
+                            method: 'DELETE'
+                        });
+                        const data = await res.json();
+                        if (data.error) {
+                            alert('Delete failed: ' + data.error);
+                        } else {
+                            await this.fetchKeys();
+                        }
+                    } catch (e) {
+                        alert('Delete failed: ' + e.message);
                     }
                 },
 
@@ -375,12 +493,25 @@
                         return;
                     }
                     try {
-                        const headers = this.opAllDbs
-                            ? { 'X-DB-All': '1' }
-                            : { 'X-DB': String(this.opDbIndex) };
-
-                        const url = `/${this.operation}/${encodeURIComponent(this.opKey)}/${this.opValue}`;
-                        const res = await fetch(url, { headers });
+                        let res;
+                        if (this.operation === 'set') {
+                            // Use POST for SET to handle JSON and special characters
+                            const headers = {
+                                'Content-Type': 'application/json',
+                                ...(this.opAllDbs ? { 'X-DB-All': '1' } : { 'X-DB': String(this.opDbIndex) })
+                            };
+                            res = await fetch('/api/set', {
+                                method: 'POST',
+                                headers,
+                                body: JSON.stringify({ key: this.opKey, value: this.opStrValue })
+                            });
+                        } else {
+                            const headers = this.opAllDbs
+                                ? { 'X-DB-All': '1' }
+                                : { 'X-DB': String(this.opDbIndex) };
+                            const url = `/${this.operation}/${encodeURIComponent(this.opKey)}/${encodeURIComponent(this.opValue)}`;
+                            res = await fetch(url, { headers });
+                        }
                         const data = await res.json();
 
                         if (this.opAllDbs) {
@@ -427,7 +558,8 @@
                             body: JSON.stringify({
                                 operation: this.operation,
                                 key: this.opKey,
-                                value: parseInt(this.opValue) || 1,
+                                value: parseInt(this.opValue) || 0,
+                                string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue),
                                 workers: this.loadTestWorkers,
                                 duration: this.loadTestDuration,
                                 db_index: this.opDbIndex,
@@ -544,12 +676,48 @@
                     }
                 },
 
+                async fetchMetrics() {
+                    try {
+                        const res = await fetch('/api/metrics');
+                        const data = await res.json();
+                        this.instrumentMetrics = data;
+                        this.metricsUpdated = new Date().toLocaleTimeString();
+                    } catch (e) {
+                        console.error('Metrics fetch failed:', e);
+                    }
+                },
+
+                toggleMetricsRefresh() {
+                    if (this.metricsAutoRefresh) {
+                        this.metricsInterval = setInterval(() => this.fetchMetrics(), 1000);
+                    } else {
+                        if (this.metricsInterval) {
+                            clearInterval(this.metricsInterval);
+                            this.metricsInterval = null;
+                        }
+                    }
+                },
+
                 formatUptime(seconds) {
                     if (seconds < 60) return seconds + 's';
                     if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
                     const hours = Math.floor(seconds / 3600);
                     const mins = Math.floor((seconds % 3600) / 60);
                     return hours + 'h ' + mins + 'm';
+                },
+
+                formatValue(value) {
+                    if (value === null || value === undefined) return '-';
+                    const num = Number(value);
+                    if (!isNaN(num) && isFinite(num)) {
+                        return num.toLocaleString();
+                    }
+                    // Decode URL-encoded strings
+                    try {
+                        return decodeURIComponent(value);
+                    } catch (e) {
+                        return value;
+                    }
                 }
             };
         }

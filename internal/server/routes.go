@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,8 +35,12 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Get("/", s.indexHandler)
 	s.App.Get("/health", s.healthHandler)
 	s.App.Get("/api/keys", s.ListKeysHandler)
+	s.App.Get("/api/keys/all", s.ListKeysAllHandler)
 	s.App.Get("/api/key/:key/all", s.GetKeyForAllDbHandler)
+	s.App.Delete("/api/key/:key", s.DeleteKeyHandler)
+	s.App.Post("/api/set", s.SetKeyHandler)
 	s.App.Get("/api/stats", s.StatsHandler)
+	s.App.Get("/api/metrics", s.MetricsHandler)
 	s.App.Post("/api/loadtest", s.LoadTestHandler)
 	s.App.Get("/:operation/:key/:number", s.OperationHandler)
 	s.App.Get("/:key", s.GetKeyHandler)
@@ -81,6 +86,105 @@ func (s *FiberServer) GetKeyForAllDbHandler(c *fiber.Ctx) error {
 			results[r.idx] = fiber.Map{"db_index": r.idx, "address": r.addr, "error": r.err.Error()}
 		} else {
 			results[r.idx] = fiber.Map{"db_index": r.idx, "address": r.addr, "value": r.value}
+		}
+	}
+
+	return c.JSON(fiber.Map{"key": key, "results": results})
+}
+
+type SetKeyRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func (s *FiberServer) SetKeyHandler(c *fiber.Ctx) error {
+	var req SetKeyRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if req.Key == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "key is required"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Check for X-DB-All header
+	if c.Get("X-DB-All") != "" {
+		type result struct {
+			idx  int
+			addr string
+			err  error
+		}
+
+		resultsChan := make(chan result, len(s.dbs))
+
+		for i, client := range s.dbs {
+			go func(idx int, cli *redis.Client) {
+				start := time.Now()
+				_, err := cli.Set(ctx, req.Key, req.Value, 0).Result()
+				RecordRedisCommand(idx, cli.Options().Addr, "set", time.Since(start), err)
+				resultsChan <- result{idx: idx, addr: cli.Options().Addr, err: err}
+			}(i, client)
+		}
+
+		results := make([]fiber.Map, len(s.dbs))
+		for range s.dbs {
+			r := <-resultsChan
+			if r.err != nil {
+				results[r.idx] = fiber.Map{"db_index": r.idx, "address": r.addr, "error": r.err.Error()}
+			} else {
+				results[r.idx] = fiber.Map{"db_index": r.idx, "address": r.addr, "result": "OK"}
+			}
+		}
+
+		return c.JSON(fiber.Map{"key": req.Key, "operation": "set", "results": results})
+	}
+
+	client, idx := s.getDB(c)
+	start := time.Now()
+	_, err := client.Set(ctx, req.Key, req.Value, 0).Result()
+	RecordRedisCommand(idx, client.Options().Addr, "set", time.Since(start), err)
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"key": req.Key, "operation": "set", "result": "OK", "db_index": idx})
+}
+
+func (s *FiberServer) DeleteKeyHandler(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	key := c.Params("key")
+
+	type result struct {
+		idx     int
+		addr    string
+		deleted int64
+		err     error
+	}
+
+	resultsChan := make(chan result, len(s.dbs))
+
+	for i, client := range s.dbs {
+		go func(idx int, cli *redis.Client) {
+			start := time.Now()
+			deleted, err := cli.Del(ctx, key).Result()
+			RecordRedisCommand(idx, cli.Options().Addr, "del", time.Since(start), err)
+			resultsChan <- result{idx: idx, addr: cli.Options().Addr, deleted: deleted, err: err}
+		}(i, client)
+	}
+
+	results := make([]fiber.Map, len(s.dbs))
+	for range s.dbs {
+		r := <-resultsChan
+		if r.err != nil {
+			results[r.idx] = fiber.Map{"db_index": r.idx, "address": r.addr, "error": r.err.Error()}
+		} else {
+			results[r.idx] = fiber.Map{"db_index": r.idx, "address": r.addr, "deleted": r.deleted}
 		}
 	}
 
@@ -160,6 +264,15 @@ type DBStats struct {
 	} `json:"store"`
 }
 
+func (s *FiberServer) MetricsHandler(c *fiber.Ctx) error {
+	addresses := make([]string, len(s.dbs))
+	for i, client := range s.dbs {
+		addresses[i] = client.Options().Addr
+	}
+	metrics := GetMetrics(len(s.dbs), addresses)
+	return c.JSON(metrics)
+}
+
 func (s *FiberServer) StatsHandler(c *fiber.Ctx) error {
 	type statsResult struct {
 		Index   int      `json:"index"`
@@ -220,38 +333,116 @@ func (s *FiberServer) StatsHandler(c *fiber.Ctx) error {
 func (s *FiberServer) ListKeysHandler(c *fiber.Ctx) error {
 	ctx := context.Background()
 	client, idx := s.getDB(c)
+
+	start := time.Now()
 	keys, err := client.Keys(ctx, "*").Result()
+	RecordRedisCommand(idx, client.Options().Addr, "keys", time.Since(start), err)
+
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"keys": keys, "db_index": idx})
 }
 
+func (s *FiberServer) ListKeysAllHandler(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	type dbKeys struct {
+		idx  int
+		addr string
+		keys []string
+		err  error
+	}
+
+	resultsChan := make(chan dbKeys, len(s.dbs))
+
+	// Fetch keys from all databases in parallel
+	for i, client := range s.dbs {
+		go func(idx int, cli *redis.Client) {
+			keys, err := cli.Keys(ctx, "*").Result()
+			resultsChan <- dbKeys{idx: idx, addr: cli.Options().Addr, keys: keys, err: err}
+		}(i, client)
+	}
+
+	// Collect results and build a map of key -> list of db indices
+	keyMap := make(map[string][]int)
+	dbAddresses := make(map[int]string)
+
+	for range s.dbs {
+		r := <-resultsChan
+		dbAddresses[r.idx] = r.addr
+		if r.err == nil {
+			for _, key := range r.keys {
+				keyMap[key] = append(keyMap[key], r.idx)
+			}
+		}
+	}
+
+	// Convert to response format
+	type keyInfo struct {
+		Key       string `json:"key"`
+		Databases []int  `json:"databases"`
+	}
+
+	var keys []keyInfo
+	for key, dbs := range keyMap {
+		keys = append(keys, keyInfo{Key: key, Databases: dbs})
+	}
+
+	// Sort keys alphabetically
+	for i := 0; i < len(keys)-1; i++ {
+		for j := i + 1; j < len(keys); j++ {
+			if keys[i].Key > keys[j].Key {
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"keys":      keys,
+		"databases": dbAddresses,
+	})
+}
+
 func (s *FiberServer) OperationHandler(c *fiber.Ctx) error {
 	ctx := context.Background()
 	operation := c.Params("operation")
 	key := c.Params("key")
-	numberStr := c.Params("number")
+	valueStr := c.Params("number") // Can be number or string value
 
-	number, err := strconv.ParseInt(numberStr, 10, 64)
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "invalid number"})
+	// URL-decode the value for SET operations
+	if decodedKey, err := url.QueryUnescape(key); err == nil {
+		key = decodedKey
+	}
+	if decodedValue, err := url.QueryUnescape(valueStr); err == nil {
+		valueStr = decodedValue
 	}
 
 	// Validate operation
-	validOps := map[string]bool{"incrby": true, "decrby": true, "expire": true, "pexpire": true}
+	validOps := map[string]bool{"incrby": true, "decrby": true, "expire": true, "pexpire": true, "set": true}
 	opLower := strings.ToLower(operation)
 	if !validOps[opLower] {
-		return c.Status(400).JSON(fiber.Map{"error": "invalid operation. Use: incrby, decrby, expire, pexpire"})
+		return c.Status(400).JSON(fiber.Map{"error": "invalid operation. Use: incrby, decrby, expire, pexpire, set"})
+	}
+
+	// For SET, use string value; for others, parse as int64
+	var number int64
+	var err error
+	if opLower != "set" {
+		number, err = strconv.ParseInt(valueStr, 10, 64)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid number"})
+		}
 	}
 
 	// Check for X-DB-All header to update all databases in parallel
 	if c.Get("X-DB-All") != "" {
-		return s.operationAll(c, ctx, opLower, key, number)
+		return s.operationAll(c, ctx, opLower, key, number, valueStr)
 	}
 
 	client, idx := s.getDB(c)
-	result, err := s.executeOperation(ctx, client, opLower, key, number)
+	result, err := s.executeOperation(ctx, client, opLower, key, number, valueStr)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -259,26 +450,51 @@ func (s *FiberServer) OperationHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"key": key, "operation": opLower, "result": result, "db_index": idx})
 }
 
-func (s *FiberServer) executeOperation(ctx context.Context, client *redis.Client, op, key string, number int64) (interface{}, error) {
+func (s *FiberServer) executeOperation(ctx context.Context, client *redis.Client, op, key string, number int64, strValue string) (any, error) {
+	return s.executeOperationWithMetrics(ctx, client, -1, op, key, number, strValue)
+}
+
+func (s *FiberServer) executeOperationWithMetrics(ctx context.Context, client *redis.Client, dbIndex int, op, key string, number int64, strValue string) (any, error) {
+	// Find db index if not provided
+	if dbIndex < 0 {
+		for i, c := range s.dbs {
+			if c == client {
+				dbIndex = i
+				break
+			}
+		}
+	}
+
+	start := time.Now()
+	var result any
+	var err error
+
 	switch op {
 	case "incrby":
-		return client.IncrBy(ctx, key, number).Result()
+		result, err = client.IncrBy(ctx, key, number).Result()
 	case "decrby":
-		return client.DecrBy(ctx, key, number).Result()
+		result, err = client.DecrBy(ctx, key, number).Result()
 	case "expire":
-		return client.Expire(ctx, key, time.Duration(number)*time.Second).Result()
+		result, err = client.Expire(ctx, key, time.Duration(number)*time.Second).Result()
 	case "pexpire":
-		return client.PExpire(ctx, key, time.Duration(number)*time.Millisecond).Result()
+		result, err = client.PExpire(ctx, key, time.Duration(number)*time.Millisecond).Result()
+	case "set":
+		result, err = client.Set(ctx, key, strValue, 0).Result()
 	default:
 		return nil, fmt.Errorf("unknown operation: %s", op)
 	}
+
+	// Record metrics
+	RecordRedisCommand(dbIndex, client.Options().Addr, op, time.Since(start), err)
+
+	return result, err
 }
 
-func (s *FiberServer) operationAll(c *fiber.Ctx, ctx context.Context, op, key string, number int64) error {
+func (s *FiberServer) operationAll(c *fiber.Ctx, ctx context.Context, op, key string, number int64, strValue string) error {
 	type result struct {
 		idx   int
 		addr  string
-		value interface{}
+		value any
 		err   error
 	}
 
@@ -286,7 +502,7 @@ func (s *FiberServer) operationAll(c *fiber.Ctx, ctx context.Context, op, key st
 
 	for i, client := range s.dbs {
 		go func(idx int, cli *redis.Client) {
-			val, err := s.executeOperation(ctx, cli, op, key, number)
+			val, err := s.executeOperation(ctx, cli, op, key, number, strValue)
 			resultsChan <- result{idx: idx, addr: cli.Options().Addr, value: val, err: err}
 		}(i, client)
 	}
@@ -305,13 +521,14 @@ func (s *FiberServer) operationAll(c *fiber.Ctx, ctx context.Context, op, key st
 }
 
 type LoadTestRequest struct {
-	Operation string `json:"operation"`
-	Key       string `json:"key"`
-	Value     int64  `json:"value"`
-	Workers   int    `json:"workers"`
-	Duration  int    `json:"duration"` // seconds
-	DbIndex   int    `json:"db_index"`
-	AllDbs    bool   `json:"all_dbs"`
+	Operation   string `json:"operation"`
+	Key         string `json:"key"`
+	Value       int64  `json:"value"`
+	StringValue string `json:"string_value"`
+	Workers     int    `json:"workers"`
+	Duration    int    `json:"duration"` // seconds
+	DbIndex     int    `json:"db_index"`
+	AllDbs      bool   `json:"all_dbs"`
 }
 
 type LoadTestResult struct {
@@ -353,7 +570,9 @@ func (s *FiberServer) LoadTestHandler(c *fiber.Ctx) error {
 	}
 
 	// Run load test
+	IncrementActiveLoadTests()
 	result := s.runLoadTest(req)
+	DecrementActiveLoadTests()
 
 	return c.JSON(result)
 }
@@ -381,7 +600,7 @@ func (s *FiberServer) runLoadTest(req LoadTestRequest) LoadTestResult {
 			if req.AllDbs {
 				// Execute on all DBs
 				for _, client := range s.dbs {
-					_, e := s.executeOperation(ctx, client, req.Operation, req.Key, req.Value)
+					_, e := s.executeOperation(ctx, client, req.Operation, req.Key, req.Value, req.StringValue)
 					if e != nil {
 						err = e
 					}
@@ -392,7 +611,7 @@ func (s *FiberServer) runLoadTest(req LoadTestRequest) LoadTestResult {
 				if dbIdx < 0 || dbIdx >= len(s.dbs) {
 					dbIdx = 0
 				}
-				_, err = s.executeOperation(ctx, s.dbs[dbIdx], req.Operation, req.Key, req.Value)
+				_, err = s.executeOperation(ctx, s.dbs[dbIdx], req.Operation, req.Key, req.Value, req.StringValue)
 			}
 
 			latency := float64(time.Since(reqStart).Microseconds()) / 1000.0 // ms
@@ -446,7 +665,10 @@ func (s *FiberServer) GetKeyHandler(c *fiber.Ctx) error {
 	client, idx := s.getDB(c)
 	key := c.Params("key")
 
+	start := time.Now()
 	val, err := client.Get(ctx, key).Result()
+	RecordRedisCommand(idx, client.Options().Addr, "get", time.Since(start), err)
+
 	if err == redis.Nil {
 		return c.Status(404).JSON(fiber.Map{"error": "key not found", "db_index": idx})
 	}

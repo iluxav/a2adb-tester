@@ -125,5 +125,25 @@ func New() *FiberServer {
 		statsURLs: statsURLs,
 	}
 
+	// Start Prometheus metrics server on port 9090
+	StartMetricsServer()
+	log.Printf("Prometheus metrics available at :9090/metrics")
+
+	// Start pool stats collector
+	go server.collectPoolStats()
+
 	return server
+}
+
+// collectPoolStats periodically updates Redis pool metrics
+func (s *FiberServer) collectPoolStats() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		for i, client := range s.dbs {
+			stats := client.PoolStats()
+			UpdatePoolStats(i, client.Options().Addr, int(stats.TotalConns), int(stats.IdleConns), int(stats.TotalConns-stats.IdleConns))
+		}
+	}
 }
