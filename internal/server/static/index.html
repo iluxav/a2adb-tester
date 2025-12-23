@@ -562,7 +562,7 @@
                                 string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue),
                                 workers: this.loadTestWorkers,
                                 duration: this.loadTestDuration,
-                                db_index: this.opDbIndex,
+                                db_index: parseInt(this.opDbIndex) || 0,
                                 all_dbs: this.opAllDbs
                             })
                         });
