@@ -79,10 +79,10 @@ func New() *FiberServer {
 			PoolTimeout:     5 * time.Second,       // Wait time if pool is exhausted
 			ConnMaxIdleTime: 5 * time.Minute,       // Close idle connections after this
 
-			// Timeouts for fast failure
-			DialTimeout:  1 * time.Second,
-			ReadTimeout:  1 * time.Second,
-			WriteTimeout: 1 * time.Second,
+			// Timeouts for remote connections
+			DialTimeout:  5 * time.Second,
+			ReadTimeout:  3 * time.Second,
+			WriteTimeout: 3 * time.Second,
 		})
 		clients = append(clients, client)
 		log.Printf("Connected to Redis: %s (pool size: %d)", addr, poolSize)
