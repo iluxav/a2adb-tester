@@ -23,16 +23,27 @@ detect_platform() {
     OS=$(uname -s | tr '[:upper:]' '[:lower:]')
     ARCH=$(uname -m)
 
-    if [ "$OS" != "linux" ]; then
-        error "Unsupported operating system: $OS (only Linux is supported)"
-    fi
+    case "$OS" in
+        linux)
+            OS="linux"
+            ;;
+        darwin)
+            OS="darwin"
+            ;;
+        *)
+            error "Unsupported operating system: $OS (supported: linux, darwin)"
+            ;;
+    esac
 
     case "$ARCH" in
         x86_64|amd64)
             ARCH="amd64"
             ;;
+        arm64|aarch64)
+            ARCH="arm64"
+            ;;
         *)
-            error "Unsupported architecture: $ARCH (only x86_64/amd64 is supported)"
+            error "Unsupported architecture: $ARCH (supported: x86_64/amd64, arm64/aarch64)"
             ;;
     esac
 
@@ -48,16 +59,17 @@ get_version() {
 
 # Download and install binary
 install_binary() {
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}"
+    ARTIFACT_NAME="${BINARY_NAME}-${PLATFORM}"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARTIFACT_NAME}"
     CHECKSUM_URL="${DOWNLOAD_URL}.sha256"
 
-    info "Downloading ${BINARY_NAME} ${VERSION} for ${PLATFORM}..."
+    info "Downloading ${ARTIFACT_NAME}..."
 
     TMP_DIR=$(mktemp -d)
     trap "rm -rf $TMP_DIR" EXIT
 
-    TMP_FILE="${TMP_DIR}/${BINARY_NAME}"
-    TMP_CHECKSUM="${TMP_DIR}/${BINARY_NAME}.sha256"
+    TMP_FILE="${TMP_DIR}/${ARTIFACT_NAME}"
+    TMP_CHECKSUM="${TMP_DIR}/${ARTIFACT_NAME}.sha256"
 
     # Download binary
     if ! curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"; then
@@ -69,9 +81,9 @@ install_binary() {
         info "Verifying checksum..."
         cd "$TMP_DIR"
         if command -v sha256sum &> /dev/null; then
-            sha256sum -c "${BINARY_NAME}.sha256" || error "Checksum verification failed"
+            sha256sum -c "${ARTIFACT_NAME}.sha256" || error "Checksum verification failed"
         elif command -v shasum &> /dev/null; then
-            shasum -a 256 -c "${BINARY_NAME}.sha256" || error "Checksum verification failed"
+            shasum -a 256 -c "${ARTIFACT_NAME}.sha256" || error "Checksum verification failed"
         else
             warn "No sha256sum or shasum found, skipping checksum verification"
         fi
