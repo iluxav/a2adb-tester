@@ -580,7 +580,7 @@ func (s *FiberServer) LoadTestHandler(c *fiber.Ctx) error {
 		req.Duration = 300
 	}
 
-	validOps := map[string]bool{"incrby": true, "decrby": true, "expire": true, "pexpire": true}
+	validOps := map[string]bool{"incrby": true, "decrby": true, "expire": true, "pexpire": true, "set": true}
 	if !validOps[req.Operation] {
 		req.Operation = "incrby"
 	}
