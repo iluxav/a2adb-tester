@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"a2adb-tester/internal/config"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/redis/go-redis/v9"
@@ -42,6 +44,11 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Get("/api/stats", s.StatsHandler)
 	s.App.Get("/api/metrics", s.MetricsHandler)
 	s.App.Post("/api/loadtest", s.LoadTestHandler)
+	s.App.Get("/api/config", s.GetConfigHandler)
+	s.App.Post("/api/config", s.SaveConfigHandler)
+	s.App.Post("/api/config/address", s.AddAddressHandler)
+	s.App.Delete("/api/config/address/:address", s.RemoveAddressHandler)
+	s.App.Post("/api/reconnect", s.ReconnectHandler)
 	s.App.Get("/:operation/:key/:number", s.OperationHandler)
 	s.App.Get("/:key", s.GetKeyHandler)
 }
@@ -677,4 +684,126 @@ func (s *FiberServer) GetKeyHandler(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"key": key, "value": val, "db_index": idx})
+}
+
+// Config handlers
+func (s *FiberServer) GetConfigHandler(c *fiber.Ctx) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{
+		"config":      cfg,
+		"config_path": config.GetConfigPath(),
+	})
+}
+
+func (s *FiberServer) SaveConfigHandler(c *fiber.Ctx) error {
+	var cfg config.Config
+	if err := c.BodyParser(&cfg); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if err := config.Save(&cfg); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "message": "Config saved. Click 'Reconnect' to apply changes."})
+}
+
+type AddAddressRequest struct {
+	Address string `json:"address"`
+}
+
+func (s *FiberServer) AddAddressHandler(c *fiber.Ctx) error {
+	var req AddAddressRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if req.Address == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "address is required"})
+	}
+
+	if err := config.AddAddress(req.Address); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "message": "Address added. Click 'Reconnect' to apply changes."})
+}
+
+func (s *FiberServer) RemoveAddressHandler(c *fiber.Ctx) error {
+	address := c.Params("address")
+	if address == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "address is required"})
+	}
+
+	// URL decode the address
+	if decoded, err := url.QueryUnescape(address); err == nil {
+		address = decoded
+	}
+
+	if err := config.RemoveAddress(address); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "message": "Address removed. Click 'Reconnect' to apply changes."})
+}
+
+func (s *FiberServer) ReconnectHandler(c *fiber.Ctx) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if len(cfg.RedisAddresses) == 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "No Redis addresses configured"})
+	}
+
+	// Close existing connections
+	for _, client := range s.dbs {
+		client.Close()
+	}
+
+	// Create new connections
+	poolSize := cfg.PoolSize
+	if poolSize <= 0 {
+		poolSize = 500
+	}
+
+	var clients []*redis.Client
+	var statsURLs []string
+
+	for _, addr := range cfg.RedisAddresses {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		client := redis.NewClient(&redis.Options{
+			Addr:            addr,
+			Password:        cfg.RedisPassword,
+			DB:              cfg.RedisDB,
+			PoolSize:        poolSize,
+			MinIdleConns:    poolSize / 10,
+			PoolTimeout:     5 * time.Second,
+			ConnMaxIdleTime: 5 * time.Minute,
+			DialTimeout:     5 * time.Second,
+			ReadTimeout:     3 * time.Second,
+			WriteTimeout:    3 * time.Second,
+		})
+		clients = append(clients, client)
+
+		// Derive stats URL
+		host := strings.Split(addr, ":")[0]
+		statsURLs = append(statsURLs, fmt.Sprintf("http://%s:9090", host))
+	}
+
+	s.dbs = clients
+	s.statsURLs = statsURLs
+
+	return c.JSON(fiber.Map{
+		"success":   true,
+		"message":   "Reconnected to Redis",
+		"databases": len(clients),
+	})
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"a2adb-tester/internal/config"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
 
@@ -22,44 +24,67 @@ type FiberServer struct {
 }
 
 // New creates a new FiberServer with multiple Redis connections.
-// Configure via REDIS_ADDRESSES env var (comma-separated), e.g.: "localhost:6379,localhost:6380"
+// First tries to load from config file (~/.a2adb-tester/config.json)
+// Falls back to REDIS_ADDRESSES env var (comma-separated), e.g.: "localhost:6379,localhost:6380"
 // Optional: REDIS_PASSWORD and REDIS_DB (applied to all connections)
 func New() *FiberServer {
-	addressesStr := os.Getenv("REDIS_ADDRESSES")
-	if addressesStr == "" {
-		// Fallback to single address from old env vars
-		addr := os.Getenv("BLUEPRINT_DB_ADDRESS")
-		port := os.Getenv("BLUEPRINT_DB_PORT")
-		if addr != "" && port != "" {
-			addressesStr = addr + ":" + port
-		} else {
-			addressesStr = "localhost:6379"
+	var addresses []string
+	var password string
+	var dbNum int
+	var poolSize int
+
+	// Try loading from config file first
+	cfg, err := config.Load()
+	if err == nil && len(cfg.RedisAddresses) > 0 {
+		log.Printf("Loading config from: %s", config.GetConfigPath())
+		addresses = cfg.RedisAddresses
+		password = cfg.RedisPassword
+		dbNum = cfg.RedisDB
+		poolSize = cfg.PoolSize
+	} else {
+		// Fallback to environment variables
+		log.Printf("No config file found, using environment variables")
+		addressesStr := os.Getenv("REDIS_ADDRESSES")
+		if addressesStr == "" {
+			// Fallback to single address from old env vars
+			addr := os.Getenv("BLUEPRINT_DB_ADDRESS")
+			port := os.Getenv("BLUEPRINT_DB_PORT")
+			if addr != "" && port != "" {
+				addressesStr = addr + ":" + port
+			} else {
+				addressesStr = ""
+			}
+		}
+
+		if addressesStr != "" {
+			addresses = strings.Split(addressesStr, ",")
+		}
+
+		password = os.Getenv("REDIS_PASSWORD")
+		if password == "" {
+			password = os.Getenv("BLUEPRINT_DB_PASSWORD")
+		}
+
+		if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
+			if n, err := strconv.Atoi(dbStr); err == nil {
+				dbNum = n
+			}
+		} else if dbStr := os.Getenv("BLUEPRINT_DB_DATABASE"); dbStr != "" {
+			if n, err := strconv.Atoi(dbStr); err == nil {
+				dbNum = n
+			}
+		}
+
+		if ps := os.Getenv("REDIS_POOL_SIZE"); ps != "" {
+			if n, err := strconv.Atoi(ps); err == nil && n > 0 {
+				poolSize = n
+			}
 		}
 	}
 
-	addresses := strings.Split(addressesStr, ",")
-	password := os.Getenv("REDIS_PASSWORD")
-	if password == "" {
-		password = os.Getenv("BLUEPRINT_DB_PASSWORD")
-	}
-
-	dbNum := 0
-	if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
-		if n, err := strconv.Atoi(dbStr); err == nil {
-			dbNum = n
-		}
-	} else if dbStr := os.Getenv("BLUEPRINT_DB_DATABASE"); dbStr != "" {
-		if n, err := strconv.Atoi(dbStr); err == nil {
-			dbNum = n
-		}
-	}
-
-	// Pool size configuration (default 500, increase via REDIS_POOL_SIZE for high concurrency)
-	poolSize := 500
-	if ps := os.Getenv("REDIS_POOL_SIZE"); ps != "" {
-		if n, err := strconv.Atoi(ps); err == nil && n > 0 {
-			poolSize = n
-		}
+	// Default pool size
+	if poolSize <= 0 {
+		poolSize = 500
 	}
 
 	var clients []*redis.Client
@@ -89,7 +114,7 @@ func New() *FiberServer {
 	}
 
 	if len(clients) == 0 {
-		log.Fatal("No Redis addresses configured")
+		log.Printf("No Redis addresses configured. Use the UI to add addresses.")
 	}
 
 	// Stats URLs configuration

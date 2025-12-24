@@ -39,6 +39,59 @@
     <h1>Redis Multi-DB Tester</h1>
 
     <div class="container" x-data="app()">
+        <!-- Config Button -->
+        <div style="grid-column: 1 / -1; text-align: right; padding: 0 0 10px 0;">
+            <button @click="showConfig = true" class="btn-secondary" style="width: auto; padding: 8px 20px; margin: 0;">Config</button>
+        </div>
+
+        <!-- Config Modal Popup -->
+        <div x-show="showConfig" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999;" @click.self="showConfig = false">
+            <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 700px; max-width: 90vw; max-height: 90vh; overflow-y: auto; background: #16213e; border-radius: 8px; padding: 20px;" @click.stop>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0; color: #0f9;">Redis Configuration</h2>
+                    <button @click="showConfig = false" style="width: auto; padding: 5px 15px; margin: 0; background: #333; font-size: 1.2rem; line-height: 1;">&times;</button>
+                </div>
+
+                <div style="font-size: 0.75rem; color: #666; margin-bottom: 15px;" x-text="configPath"></div>
+
+                <!-- Address List -->
+                <label>Redis Addresses</label>
+                <div style="max-height: 200px; overflow-y: auto; background: #0d1b3e; border-radius: 4px; padding: 10px; margin-bottom: 15px;">
+                    <template x-for="(addr, i) in configAddresses" :key="i">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #2a3f5f;">
+                            <span style="font-family: monospace; font-size: 0.95rem;" x-text="addr"></span>
+                            <button @click="removeAddress(addr)" style="padding: 4px 10px; margin: 0; width: auto; background: #f66; font-size: 0.8rem;">Remove</button>
+                        </div>
+                    </template>
+                    <div x-show="configAddresses.length === 0" style="color: #666; text-align: center; padding: 20px;">No addresses configured</div>
+                </div>
+
+                <!-- Add Address -->
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <input type="text" x-model="newAddress" placeholder="host:port (e.g., 192.168.1.100:6379)" @keyup.enter="addAddress()" style="flex: 1; margin: 0;">
+                    <button @click="addAddress()" style="width: auto; padding: 10px 20px; margin: 0; background: #0f9;">Add</button>
+                </div>
+
+                <!-- Pool Size -->
+                <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px;">
+                    <label style="margin: 0; white-space: nowrap;">Pool Size:</label>
+                    <input type="number" x-model.number="configPoolSize" min="10" max="10000" placeholder="500" style="width: 120px; margin: 0;">
+                </div>
+
+                <!-- Status Message -->
+                <div x-show="configMessage" style="margin-bottom: 15px; padding: 10px; border-radius: 4px; font-size: 0.9rem;"
+                     :style="configError ? 'background: #3d0a0a; color: #f66;' : 'background: #0a3d0a; color: #0f9;'"
+                     x-text="configMessage"></div>
+
+                <!-- Actions -->
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button @click="showConfig = false" class="btn-secondary" style="width: auto; padding: 10px 25px; margin: 0;">Cancel</button>
+                    <button @click="saveConfig()" class="btn-secondary" style="width: auto; padding: 10px 25px; margin: 0;">Save</button>
+                    <button @click="reconnect()" style="width: auto; padding: 10px 25px; margin: 0; background: #f90;">Reconnect</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Left Column: Keys List -->
         <div class="panel">
             <h2>All Keys (All DBs)</h2>
@@ -389,6 +442,15 @@
     <script>
         function app() {
             return {
+                // Config state
+                showConfig: false,
+                configAddresses: [],
+                configPoolSize: 500,
+                configPath: '',
+                newAddress: '',
+                configMessage: '',
+                configError: false,
+
                 databases: [],
                 keys: [],
                 keysUpdated: '-',
@@ -434,11 +496,17 @@
                 metricsInterval: null,
 
                 async init() {
+                    await this.fetchConfig();
                     await this.fetchHealth();
                     this.fetchKeys();
                     this.fetchStats();
                     this.fetchMetrics();
                     this.keysInterval = setInterval(() => this.fetchKeys(), 1000);
+
+                    // Show config panel if no databases configured
+                    if (this.databases.length === 0) {
+                        this.showConfig = true;
+                    }
                 },
 
                 async fetchHealth() {
@@ -450,6 +518,115 @@
                     } catch (e) {
                         console.error('Health check failed:', e);
                     }
+                },
+
+                async fetchConfig() {
+                    try {
+                        const res = await fetch('/api/config');
+                        const data = await res.json();
+                        if (data.config) {
+                            this.configAddresses = data.config.redis_addresses || [];
+                            this.configPoolSize = data.config.pool_size || 500;
+                        }
+                        this.configPath = data.config_path || '';
+                    } catch (e) {
+                        console.error('Fetch config failed:', e);
+                    }
+                },
+
+                async addAddress() {
+                    if (!this.newAddress) return;
+                    try {
+                        const res = await fetch('/api/config/address', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ address: this.newAddress })
+                        });
+                        const data = await res.json();
+                        if (data.error) {
+                            this.configMessage = data.error;
+                            this.configError = true;
+                        } else {
+                            this.configMessage = data.message;
+                            this.configError = false;
+                            this.newAddress = '';
+                            await this.fetchConfig();
+                        }
+                    } catch (e) {
+                        this.configMessage = 'Failed to add address: ' + e.message;
+                        this.configError = true;
+                    }
+                    setTimeout(() => this.configMessage = '', 5000);
+                },
+
+                async removeAddress(address) {
+                    try {
+                        const res = await fetch(`/api/config/address/${encodeURIComponent(address)}`, {
+                            method: 'DELETE'
+                        });
+                        const data = await res.json();
+                        if (data.error) {
+                            this.configMessage = data.error;
+                            this.configError = true;
+                        } else {
+                            this.configMessage = data.message;
+                            this.configError = false;
+                            await this.fetchConfig();
+                        }
+                    } catch (e) {
+                        this.configMessage = 'Failed to remove address: ' + e.message;
+                        this.configError = true;
+                    }
+                    setTimeout(() => this.configMessage = '', 5000);
+                },
+
+                async saveConfig() {
+                    try {
+                        const res = await fetch('/api/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                redis_addresses: this.configAddresses,
+                                pool_size: this.configPoolSize
+                            })
+                        });
+                        const data = await res.json();
+                        if (data.error) {
+                            this.configMessage = data.error;
+                            this.configError = true;
+                        } else {
+                            this.configMessage = data.message;
+                            this.configError = false;
+                        }
+                    } catch (e) {
+                        this.configMessage = 'Failed to save config: ' + e.message;
+                        this.configError = true;
+                    }
+                    setTimeout(() => this.configMessage = '', 5000);
+                },
+
+                async reconnect() {
+                    try {
+                        this.configMessage = 'Reconnecting...';
+                        this.configError = false;
+                        const res = await fetch('/api/reconnect', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.error) {
+                            this.configMessage = data.error;
+                            this.configError = true;
+                        } else {
+                            this.configMessage = `Connected to ${data.databases} database(s)`;
+                            this.configError = false;
+                            await this.fetchHealth();
+                            this.fetchKeys();
+                            this.fetchStats();
+                            this.fetchMetrics();
+                        }
+                    } catch (e) {
+                        this.configMessage = 'Failed to reconnect: ' + e.message;
+                        this.configError = true;
+                    }
+                    setTimeout(() => this.configMessage = '', 5000);
                 },
 
                 async fetchKeys() {
