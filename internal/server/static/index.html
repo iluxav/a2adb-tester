@@ -80,7 +80,7 @@
                         <span class="font-mono text-sm truncate flex-1" x-text="item.key"></span>
                         <span class="flex gap-1 ml-2 items-center">
                             <template x-for="dbIdx in totalDbs" :key="dbIdx">
-                                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" :class="item.databases.includes(dbIdx) ? 'bg-accent text-black' : 'bg-neutral-700 text-neutral-500'" x-text="'DB ' + dbIdx"></span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" :class="item.databases.includes(dbIdx) ? 'bg-accent text-black' : 'bg-neutral-700 text-neutral-500'" x-text="getDbLabel(dbIdx)"></span>
                             </template>
                             <button @click.stop="deleteKey(item.key)" class="ml-1 px-1.5 py-0.5 bg-red-500 hover:bg-red-600 text-white text-[10px] rounded">X</button>
                         </span>
@@ -112,8 +112,9 @@
             <div x-show="!opAllDbs">
                 <label class="block text-sm text-neutral-400 mb-1">Database</label>
                 <select x-model="opDbIndex" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
+                    <option value="">🎲 Random</option>
                     <template x-for="(db, i) in databases" :key="i">
-                        <option :value="i" x-text="'DB ' + i + ' - ' + db.address"></option>
+                        <option :value="i" x-text="(getReplicaName(db) || ('DB ' + i)) + ' - ' + db"></option>
                     </template>
                 </select>
             </div>
@@ -180,7 +181,7 @@
             <div x-show="opResults.length > 0 && opAllDbs && !loadTestMode" class="mt-3 space-y-2">
                 <template x-for="(result, i) in opResults" :key="i">
                     <div class="p-2 bg-neutral-800 rounded-lg border-l-4 border-accent">
-                        <div class="text-accent text-xs" x-text="'DB ' + result.db_index + ' - ' + result.address"></div>
+                        <div class="text-accent text-xs" x-text="(getReplicaName(result.address) || ('DB ' + result.db_index)) + ' - ' + result.address"></div>
                         <div class="font-mono text-sm" :class="result.error ? 'text-red-400' : ''" x-text="result.error || 'Result: ' + result.result"></div>
                     </div>
                 </template>
@@ -212,7 +213,7 @@
             <div class="space-y-2">
                 <template x-for="(result, i) in watchResults" :key="i">
                     <div class="p-2 bg-neutral-800 rounded-lg border-l-4" :class="!result.error && !watchValuesMatch() && result.value !== getExpectedValue() ? 'border-red-500' : 'border-accent'">
-                        <div class="text-accent text-xs" x-text="'DB ' + result.db_index + ' - ' + result.address"></div>
+                        <div class="text-accent text-xs" x-text="(getReplicaName(result.address) || ('DB ' + result.db_index)) + ' - ' + result.address"></div>
                         <div class="font-mono text-sm break-all" :class="result.error ? 'text-red-400' : (!watchValuesMatch() && result.value !== getExpectedValue() ? 'text-red-400' : 'text-accent')" x-text="result.error || formatValue(result.value)"></div>
                     </div>
                 </template>
@@ -285,7 +286,8 @@
                         <template x-for="(db, i) in dbStats" :key="i">
                             <tr class="border-b border-neutral-800 hover:bg-neutral-800/50">
                                 <td class="p-2 sticky left-0 bg-neutral-900">
-                                    <span class="text-accent font-bold">DB <span x-text="db.index"></span></span>
+                                    <span class="text-accent font-bold" x-text="getReplicaName(db.address) || ('DB ' + db.index)"></span>
+                                    <span class="text-neutral-600 text-xs ml-1" x-show="getReplicaName(db.address)" x-text="'DB ' + db.index"></span>
                                     <br><span class="text-xs text-neutral-500" x-text="db.address"></span>
                                     <span x-show="db.error" class="text-red-400 text-xs block" x-text="db.error"></span>
                                 </td>
@@ -328,6 +330,68 @@
             <div x-show="statsUpdated" class="text-xs text-neutral-500 mt-2">Last updated: <span x-text="statsUpdated"></span></div>
         </div>
 
+        <!-- Cluster Nodes -->
+        <div class="col-span-3 bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-accent text-sm font-semibold uppercase tracking-wider">Cluster Nodes</h2>
+                <button @click="fetchCluster(); fetchStats();" class="px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 text-sm">Refresh</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <template x-for="cluster in clusterInfo" :key="cluster.index">
+                    <div class="bg-neutral-800 rounded-lg p-4 border border-neutral-700">
+                        <div class="flex justify-between items-center mb-3">
+                            <div>
+                                <span class="text-accent font-bold text-lg" x-text="cluster.cluster?.replica_id || ('DB ' + cluster.index)"></span>
+                                <span class="text-neutral-600 text-xs ml-2" x-text="'DB ' + cluster.index"></span>
+                            </div>
+                            <span x-show="cluster.error" class="text-red-400 text-xs" x-text="cluster.error"></span>
+                        </div>
+                        <div class="text-xs text-neutral-500 mb-3" x-text="cluster.address"></div>
+
+                        <!-- Store Stats -->
+                        <div class="grid grid-cols-3 gap-2 mb-3">
+                            <div class="bg-neutral-900 p-2 rounded text-center">
+                                <div class="text-[10px] text-neutral-500 uppercase">Keys</div>
+                                <div class="text-accent font-bold text-sm" x-text="(getStatsForAddress(cluster.address)?.store?.keys || 0).toLocaleString()"></div>
+                            </div>
+                            <div class="bg-neutral-900 p-2 rounded text-center">
+                                <div class="text-[10px] text-neutral-500 uppercase">Memory</div>
+                                <div class="text-accent font-bold text-sm" x-text="formatBytes(getStatsForAddress(cluster.address)?.store?.memory_bytes || 0)"></div>
+                            </div>
+                            <div class="bg-neutral-900 p-2 rounded text-center">
+                                <div class="text-[10px] text-neutral-500 uppercase">Disk</div>
+                                <div class="text-accent font-bold text-sm" x-text="formatBytes(getStatsForAddress(cluster.address)?.store?.disk_bytes || 0)"></div>
+                            </div>
+                        </div>
+
+                        <template x-if="cluster.cluster">
+                            <div>
+                                <div class="text-xs text-neutral-400 mb-2">
+                                    <span class="text-neutral-500">Peers:</span> <span class="text-accent" x-text="cluster.cluster.peer_count || 0"></span>
+                                </div>
+                                <div x-show="cluster.cluster.peers && cluster.cluster.peers.length > 0" class="space-y-1">
+                                    <template x-for="peer in cluster.cluster.peers" :key="peer.replica_id">
+                                        <div class="flex items-center justify-between text-xs p-2 bg-neutral-900 rounded">
+                                            <div>
+                                                <span class="text-neutral-400" x-text="peer.replica_id"></span>
+                                                <span class="text-neutral-600 ml-2" x-text="peer.address"></span>
+                                            </div>
+                                            <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                                :class="peer.state === 'Alive' ? 'bg-green-900/50 text-green-400' : peer.state === 'Suspect' ? 'bg-yellow-900/50 text-yellow-400' : 'bg-red-900/50 text-red-400'"
+                                                x-text="peer.state"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div x-show="!cluster.cluster.peers || cluster.cluster.peers.length === 0" class="text-xs text-neutral-500 italic">No peers connected</div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+            <div x-show="clusterInfo.length === 0" class="text-neutral-500 text-sm text-center py-4">No cluster information available</div>
+        </div>
+
         <!-- Instrumentation Metrics -->
         <div class="col-span-3 bg-neutral-900 rounded-xl p-5 border border-neutral-800">
             <div class="flex justify-between items-center mb-4">
@@ -366,7 +430,8 @@
                         <template x-for="(db, i) in instrumentMetrics.databases || []" :key="i">
                             <tr class="border-b border-neutral-800 align-top hover:bg-neutral-800/50">
                                 <td class="p-2 sticky left-0 bg-neutral-900">
-                                    <span class="text-accent font-bold">DB <span x-text="db.db_index"></span></span>
+                                    <span class="text-accent font-bold" x-text="getReplicaName(db.address) || ('DB ' + db.db_index)"></span>
+                                    <span class="text-neutral-600 text-xs ml-1" x-show="getReplicaName(db.address)" x-text="'DB ' + db.db_index"></span>
                                     <br><span class="text-xs text-neutral-500" x-text="db.address"></span>
                                 </td>
                                 <td class="p-2 text-center" x-text="db.pool_size || 0"></td>
@@ -446,6 +511,8 @@
                 statsAutoRefresh: false,
                 statsInterval: null,
 
+                clusterInfo: [],
+
                 instrumentMetrics: { databases: [], active_load_tests: 0 },
                 metricsUpdated: '',
                 metricsAutoRefresh: false,
@@ -456,8 +523,10 @@
                     await this.fetchHealth();
                     this.fetchKeys();
                     this.fetchStats();
+                    this.fetchCluster();
                     this.fetchMetrics();
                     this.keysInterval = setInterval(() => this.fetchKeys(), 1000);
+                    setInterval(() => { this.fetchCluster(); this.fetchStats(); }, 2000);
                     if (this.databases.length === 0) this.showConfig = true;
                 },
 
@@ -572,8 +641,9 @@
                     this.loadTestStats = { total: 0, errors: 0, rps: 0, avgLatency: 0, minLatency: 0, maxLatency: 0, duration: 0 };
                     const startTime = Date.now();
                     const elapsedInterval = setInterval(() => { this.loadTestElapsed = Math.floor((Date.now() - startTime) / 1000); }, 100);
+                    const isRandom = this.opDbIndex === '' || this.opDbIndex === null;
                     try {
-                        const res = await fetch('/api/loadtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: this.operation, key: this.opKey, value: parseInt(this.opValue) || 0, string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue), workers: this.loadTestWorkers, duration: this.loadTestDuration, db_index: parseInt(this.opDbIndex) || 0, all_dbs: this.opAllDbs }) });
+                        const res = await fetch('/api/loadtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: this.operation, key: this.opKey, value: parseInt(this.opValue) || 0, string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue), workers: this.loadTestWorkers, duration: this.loadTestDuration, db_index: isRandom ? 0 : (parseInt(this.opDbIndex) || 0), all_dbs: this.opAllDbs, random_db: isRandom }) });
                         const data = await res.json();
                         if (data.error) alert('Load test error: ' + data.error);
                         else this.loadTestStats = { total: data.total_requests, errors: data.errors, rps: data.rps, avgLatency: data.avg_latency_ms, minLatency: data.min_latency_ms, maxLatency: data.max_latency_ms, duration: data.duration };
@@ -618,6 +688,23 @@
                     return expected;
                 },
 
+                getReplicaName(address) {
+                    const cluster = this.clusterInfo.find(c => c.address === address);
+                    return cluster?.cluster?.replica_id || null;
+                },
+
+                getStatsForAddress(address) {
+                    const stat = this.dbStats.find(s => s.address === address);
+                    return stat?.stats || null;
+                },
+
+                getDbLabel(index) {
+                    const db = this.databases[index];
+                    if (!db) return `DB ${index}`;
+                    const replica = this.getReplicaName(db);
+                    return replica ? `${replica}` : `DB ${index}`;
+                },
+
                 async fetchStats() {
                     try {
                         const res = await fetch('/api/stats');
@@ -627,8 +714,16 @@
                     } catch (e) { console.error('Stats fetch failed:', e); }
                 },
 
+                async fetchCluster() {
+                    try {
+                        const res = await fetch('/api/cluster');
+                        const data = await res.json();
+                        this.clusterInfo = data.clusters || [];
+                    } catch (e) { console.error('Cluster fetch failed:', e); }
+                },
+
                 toggleStatsRefresh() {
-                    if (this.statsAutoRefresh) this.statsInterval = setInterval(() => this.fetchStats(), 1000);
+                    if (this.statsAutoRefresh) this.statsInterval = setInterval(() => { this.fetchStats(); this.fetchCluster(); }, 1000);
                     else if (this.statsInterval) { clearInterval(this.statsInterval); this.statsInterval = null; }
                 },
 

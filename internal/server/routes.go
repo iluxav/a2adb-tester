@@ -42,6 +42,7 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Delete("/api/key/:key", s.DeleteKeyHandler)
 	s.App.Post("/api/set", s.SetKeyHandler)
 	s.App.Get("/api/stats", s.StatsHandler)
+	s.App.Get("/api/cluster", s.ClusterHandler)
 	s.App.Get("/api/metrics", s.MetricsHandler)
 	s.App.Post("/api/loadtest", s.LoadTestHandler)
 	s.App.Get("/api/config", s.GetConfigHandler)
@@ -346,6 +347,106 @@ func (s *FiberServer) StatsHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"stats": results})
 }
 
+// ClusterPeer represents a single peer in the cluster
+type ClusterPeer struct {
+	ReplicaID string `json:"replica_id"`
+	Address   string `json:"address"`
+	State     string `json:"state"` // Alive, Suspect, Dead
+}
+
+// ClusterInfo represents cluster information for a database
+type ClusterInfo struct {
+	ReplicaID string        `json:"replica_id"`
+	PeerCount int           `json:"peer_count"`
+	Peers     []ClusterPeer `json:"peers"`
+}
+
+func (s *FiberServer) ClusterHandler(c *fiber.Ctx) error {
+	type clusterResult struct {
+		Index   int          `json:"index"`
+		Address string       `json:"address"`
+		Cluster *ClusterInfo `json:"cluster,omitempty"`
+		Error   string       `json:"error,omitempty"`
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	results := make([]clusterResult, len(s.dbs))
+
+	for i, client := range s.dbs {
+		wg.Add(1)
+		go func(idx int, cli *redis.Client) {
+			defer wg.Done()
+
+			result := clusterResult{
+				Index:   idx,
+				Address: cli.Options().Addr,
+			}
+
+			cluster := &ClusterInfo{
+				Peers: []ClusterPeer{},
+			}
+
+			// Execute CLUSTER INFO
+			infoResult, err := cli.Do(ctx, "CLUSTER", "INFO").Result()
+			if err != nil {
+				result.Error = err.Error()
+				results[idx] = result
+				return
+			}
+
+			// Parse CLUSTER INFO response (key:value format)
+			if infoStr, ok := infoResult.(string); ok {
+				lines := strings.Split(infoStr, "\n")
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+						switch parts[0] {
+						case "replica_id":
+							cluster.ReplicaID = parts[1]
+						case "peer_count":
+							if n, err := strconv.Atoi(parts[1]); err == nil {
+								cluster.PeerCount = n
+							}
+						}
+					}
+				}
+			}
+
+			// Execute CLUSTER PEERS
+			peersResult, err := cli.Do(ctx, "CLUSTER", "PEERS").Result()
+			if err != nil {
+				// CLUSTER PEERS might fail if no peers, continue with what we have
+				result.Cluster = cluster
+				results[idx] = result
+				return
+			}
+
+			// Parse CLUSTER PEERS response (array of "replica_id|address|state")
+			if peersArray, ok := peersResult.([]interface{}); ok {
+				for _, peer := range peersArray {
+					if peerStr, ok := peer.(string); ok {
+						parts := strings.Split(peerStr, "|")
+						if len(parts) >= 3 {
+							cluster.Peers = append(cluster.Peers, ClusterPeer{
+								ReplicaID: parts[0],
+								Address:   parts[1],
+								State:     parts[2],
+							})
+						}
+					}
+				}
+			}
+
+			result.Cluster = cluster
+			results[idx] = result
+		}(i, client)
+	}
+
+	wg.Wait()
+	return c.JSON(fiber.Map{"clusters": results})
+}
+
 func (s *FiberServer) ListKeysHandler(c *fiber.Ctx) error {
 	ctx := context.Background()
 	client, idx := s.getDB(c)
@@ -545,6 +646,7 @@ type LoadTestRequest struct {
 	Duration    int    `json:"duration"` // seconds
 	DbIndex     int    `json:"db_index"`
 	AllDbs      bool   `json:"all_dbs"`
+	RandomDb    bool   `json:"random_db"`
 }
 
 type LoadTestResult struct {
@@ -621,6 +723,10 @@ func (s *FiberServer) runLoadTest(req LoadTestRequest) LoadTestResult {
 						err = e
 					}
 				}
+			} else if req.RandomDb && len(s.dbs) > 0 {
+				// Execute on random DB
+				dbIdx := rand.Intn(len(s.dbs))
+				_, err = s.executeOperation(ctx, s.dbs[dbIdx], req.Operation, req.Key, req.Value, req.StringValue)
 			} else {
 				// Execute on specific DB
 				dbIdx := req.DbIndex

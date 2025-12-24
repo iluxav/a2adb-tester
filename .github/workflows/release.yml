@@ -1,4 +1,4 @@
-name: Build
+name: Build and Release
 
 on:
   push:
@@ -13,6 +13,21 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,7 +35,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.24"
 
       - name: Get version
         id: version
@@ -30,20 +45,34 @@ jobs:
 
       - name: Build binary
         env:
-          GOOS: linux
-          GOARCH: amd64
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
           mkdir -p dist
+          BINARY_NAME="a2adb-tester-${{ matrix.suffix }}${{ matrix.ext }}"
           go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" \
-            -o "dist/a2adb-tester" ./cmd/api
-          cd dist && sha256sum "a2adb-tester" > "a2adb-tester.sha256"
+            -o "dist/${BINARY_NAME}" ./cmd/api
+          cd dist && sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: a2adb-tester-linux-amd64
+          name: a2adb-tester-${{ matrix.suffix }}
           path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la dist/
 
       - name: Update latest release
         uses: softprops/action-gh-release@v1
@@ -56,5 +85,12 @@ jobs:
           body: |
             Latest build from ${{ github.ref_name }} branch
             Commit: ${{ github.sha }}
+
+            ## Downloads
+            - **Linux (amd64)**: `a2adb-tester-linux-amd64`
+            - **Linux (arm64)**: `a2adb-tester-linux-arm64`
+            - **macOS (Intel)**: `a2adb-tester-darwin-amd64`
+            - **macOS (Apple Silicon)**: `a2adb-tester-darwin-arm64`
+            - **Windows**: `a2adb-tester-windows-amd64.exe`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
