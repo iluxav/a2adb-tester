@@ -267,8 +267,17 @@ type DBStats struct {
 		LatencyMaxMs   int `json:"latency_max_ms"`
 	} `json:"replication"`
 	Store struct {
-		Keys int `json:"keys"`
+		Keys        int `json:"keys"`
+		MemoryBytes int `json:"memory_bytes"`
+		DiskBytes   int `json:"disk_bytes"`
 	} `json:"store"`
+	Gossip struct {
+		PeersAlive       int `json:"peers_alive"`
+		PeersSuspect     int `json:"peers_suspect"`
+		PeersDead        int `json:"peers_dead"`
+		MessagesSent     int `json:"messages_sent"`
+		MessagesReceived int `json:"messages_received"`
+	} `json:"gossip"`
 }
 
 func (s *FiberServer) MetricsHandler(c *fiber.Ctx) error {

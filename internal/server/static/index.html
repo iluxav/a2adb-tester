@@ -3,125 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Redis Tester</title>
+    <title>A2DB Playground</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        accent: '#00ff99',
+                        'accent-hover': '#00ddaa',
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
-        .container { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; padding: 20px; }
-        .panel { background: #16213e; border-radius: 8px; padding: 20px; }
-        h2 { margin-bottom: 15px; color: #0f9; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; }
-        .keys-list { max-height: 55vh; overflow-y: auto; }
-        .key-item { padding: 8px 12px; background: #0d1b3e; margin-bottom: 5px; border-radius: 4px; font-family: monospace; font-size: 0.9rem; }
-        label { display: block; margin-bottom: 5px; color: #888; font-size: 0.85rem; }
-        select, input, button, textarea { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #2a3f5f; border-radius: 4px; background: #0d1b3e; color: #eee; font-size: 1rem; font-family: inherit; }
-        select:focus, input:focus, textarea:focus { outline: none; border-color: #0f9; }
-        button { background: #0f9; color: #000; font-weight: bold; cursor: pointer; border: none; transition: background 0.2s; }
-        button:hover { background: #0da; }
-        .btn-secondary { background: #2a3f5f; color: #eee; }
-        .btn-secondary:hover { background: #3a5f8f; }
-        .watch-results { margin-top: 15px; }
-        .watch-item { padding: 10px; background: #0d1b3e; margin-bottom: 8px; border-radius: 4px; border-left: 3px solid #0f9; }
-        .watch-item .db { color: #0f9; font-size: 0.8rem; margin-bottom: 4px; }
-        .watch-item .value { font-family: monospace; word-break: break-all; }
-        .status { font-size: 0.8rem; color: #666; margin-top: 5px; }
-        .error { color: #f66; }
-        .result { padding: 10px; background: #0d1b3e; border-radius: 4px; margin-top: 10px; }
-        .result.success { border-left: 3px solid #0f9; }
-        .result.error { border-left: 3px solid #f66; }
-        h1 { text-align: center; padding: 20px; color: #0f9; }
-        .stat-box { background: #1a1a2e; padding: 10px; border-radius: 4px; text-align: center; }
-        .stat-label { font-size: 0.75rem; color: #888; text-transform: uppercase; }
-        .stat-value { font-size: 1.4rem; font-weight: bold; color: #0f9; margin-top: 4px; }
+        [x-cloak] { display: none !important; }
     </style>
 </head>
-<body>
-    <h1>Redis Multi-DB Tester</h1>
+<body class="bg-neutral-950 text-neutral-200 min-h-screen font-sans">
+    <h1 class="text-center py-5 text-accent text-2xl font-semibold">A2DB Playground</h1>
 
-    <div class="container" x-data="app()">
+    <div class="grid grid-cols-3 gap-5 p-5" x-data="app()">
         <!-- Config Button -->
-        <div style="grid-column: 1 / -1; text-align: right; padding: 0 0 10px 0;">
-            <button @click="showConfig = true" class="btn-secondary" style="width: auto; padding: 8px 20px; margin: 0;">Config</button>
+        <div class="col-span-3 text-right">
+            <button @click="showConfig = true" class="px-5 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg border border-neutral-700 transition">Config</button>
         </div>
 
-        <!-- Config Modal Popup -->
-        <div x-show="showConfig" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999;" @click.self="showConfig = false">
-            <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 700px; max-width: 90vw; max-height: 90vh; overflow-y: auto; background: #16213e; border-radius: 8px; padding: 20px;" @click.stop>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="margin: 0; color: #0f9;">Redis Configuration</h2>
-                    <button @click="showConfig = false" style="width: auto; padding: 5px 15px; margin: 0; background: #333; font-size: 1.2rem; line-height: 1;">&times;</button>
+        <!-- Config Modal -->
+        <div x-show="showConfig" x-cloak class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" @click.self="showConfig = false">
+            <div class="bg-neutral-900 rounded-xl p-6 w-[700px] max-w-[90vw] max-h-[90vh] overflow-y-auto border border-neutral-800" @click.stop>
+                <div class="flex justify-between items-center mb-5">
+                    <h2 class="text-accent text-lg font-semibold">Redis Configuration</h2>
+                    <button @click="showConfig = false" class="w-8 h-8 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-xl">&times;</button>
                 </div>
+                <p class="text-xs text-neutral-500 mb-4" x-text="configPath"></p>
 
-                <div style="font-size: 0.75rem; color: #666; margin-bottom: 15px;" x-text="configPath"></div>
-
-                <!-- Address List -->
-                <label>Redis Addresses</label>
-                <div style="max-height: 200px; overflow-y: auto; background: #0d1b3e; border-radius: 4px; padding: 10px; margin-bottom: 15px;">
+                <label class="block text-sm text-neutral-400 mb-2">Redis Addresses</label>
+                <div class="bg-neutral-800 rounded-lg p-3 mb-4 max-h-48 overflow-y-auto border border-neutral-700">
                     <template x-for="(addr, i) in configAddresses" :key="i">
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #2a3f5f;">
-                            <span style="font-family: monospace; font-size: 0.95rem;" x-text="addr"></span>
-                            <button @click="removeAddress(addr)" style="padding: 4px 10px; margin: 0; width: auto; background: #f66; font-size: 0.8rem;">Remove</button>
+                        <div class="flex justify-between items-center py-2 border-b border-neutral-700 last:border-0">
+                            <span class="font-mono text-sm" x-text="addr"></span>
+                            <button @click="removeAddress(addr)" class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded">Remove</button>
                         </div>
                     </template>
-                    <div x-show="configAddresses.length === 0" style="color: #666; text-align: center; padding: 20px;">No addresses configured</div>
+                    <div x-show="configAddresses.length === 0" class="text-neutral-500 text-center py-4">No addresses configured</div>
                 </div>
 
-                <!-- Add Address -->
-                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                    <input type="text" x-model="newAddress" placeholder="host:port (e.g., 192.168.1.100:6379)" @keyup.enter="addAddress()" style="flex: 1; margin: 0;">
-                    <button @click="addAddress()" style="width: auto; padding: 10px 20px; margin: 0; background: #0f9;">Add</button>
+                <div class="flex gap-3 mb-5">
+                    <input type="text" x-model="newAddress" placeholder="host:port (e.g., 192.168.1.100:6379)" @keyup.enter="addAddress()" class="flex-1 px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
+                    <button @click="addAddress()" class="px-5 py-2 bg-accent hover:bg-accent-hover text-black font-semibold rounded-lg">Add</button>
                 </div>
 
-                <!-- Pool Size -->
-                <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px;">
-                    <label style="margin: 0; white-space: nowrap;">Pool Size:</label>
-                    <input type="number" x-model.number="configPoolSize" min="10" max="10000" placeholder="500" style="width: 120px; margin: 0;">
+                <div class="flex items-center gap-4 mb-5">
+                    <label class="text-sm text-neutral-400">Pool Size:</label>
+                    <input type="number" x-model.number="configPoolSize" min="10" max="10000" class="w-28 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
                 </div>
 
-                <!-- Status Message -->
-                <div x-show="configMessage" style="margin-bottom: 15px; padding: 10px; border-radius: 4px; font-size: 0.9rem;"
-                     :style="configError ? 'background: #3d0a0a; color: #f66;' : 'background: #0a3d0a; color: #0f9;'"
-                     x-text="configMessage"></div>
+                <div x-show="configMessage" class="mb-4 p-3 rounded-lg text-sm" :class="configError ? 'bg-red-900/50 text-red-400' : 'bg-green-900/50 text-accent'" x-text="configMessage"></div>
 
-                <!-- Actions -->
-                <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button @click="showConfig = false" class="btn-secondary" style="width: auto; padding: 10px 25px; margin: 0;">Cancel</button>
-                    <button @click="saveConfig()" class="btn-secondary" style="width: auto; padding: 10px 25px; margin: 0;">Save</button>
-                    <button @click="reconnect()" style="width: auto; padding: 10px 25px; margin: 0; background: #f90;">Reconnect</button>
+                <div class="flex gap-3 justify-end">
+                    <button @click="showConfig = false" class="px-5 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700">Cancel</button>
+                    <button @click="saveConfig()" class="px-5 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700">Save</button>
+                    <button @click="reconnect()" class="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg">Reconnect</button>
                 </div>
             </div>
         </div>
 
-        <!-- Left Column: Keys List -->
-        <div class="panel">
-            <h2>All Keys (All DBs)</h2>
-            <div class="keys-list">
+        <!-- Left: Keys List -->
+        <div class="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+            <h2 class="text-accent text-sm font-semibold uppercase tracking-wider mb-4">All Keys (All DBs)</h2>
+            <div class="max-h-[55vh] overflow-y-auto space-y-2">
                 <template x-for="item in keys" :key="item.key">
-                    <div class="key-item" @click="selectKey(item.key)" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                        <span x-text="item.key" style="flex: 1; overflow: hidden; text-overflow: ellipsis;"></span>
-                        <span style="display: flex; gap: 4px; margin-left: 8px; align-items: center;">
+                    <div @click="selectKey(item.key)" class="flex justify-between items-center p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg cursor-pointer border border-neutral-700 transition">
+                        <span class="font-mono text-sm truncate flex-1" x-text="item.key"></span>
+                        <span class="flex gap-1 ml-2 items-center">
                             <template x-for="dbIdx in totalDbs" :key="dbIdx">
-                                <span
-                                    :style="'padding: 4px 6px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; ' + (item.databases.includes(dbIdx) ? 'background: #0f9; color: #000;' : 'background: #333; color: #667;')"
-                                    x-text="'DB ' + dbIdx"></span>
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" :class="item.databases.includes(dbIdx) ? 'bg-accent text-black' : 'bg-neutral-700 text-neutral-500'" x-text="'DB ' + dbIdx"></span>
                             </template>
-                            <button @click.stop="deleteKey(item.key)" style="padding: 2px 6px; margin: 0; width: auto; background: #f66; font-size: 0.7rem;">X</button>
+                            <button @click.stop="deleteKey(item.key)" class="ml-1 px-1.5 py-0.5 bg-red-500 hover:bg-red-600 text-white text-[10px] rounded">X</button>
                         </span>
                     </div>
                 </template>
-                <div x-show="keys.length === 0" class="status">No keys found</div>
+                <div x-show="keys.length === 0" class="text-neutral-500 text-sm">No keys found</div>
             </div>
-            <div class="status">
-                <span x-text="keys.length"></span> keys | Last updated: <span x-text="keysUpdated"></span>
-            </div>
+            <div class="text-xs text-neutral-500 mt-3"><span x-text="keys.length"></span> keys | Last updated: <span x-text="keysUpdated"></span></div>
         </div>
 
-        <!-- Middle Column: Redis Operation -->
-        <div class="panel">
-            <h2>Redis Operation</h2>
+        <!-- Middle: Redis Operation -->
+        <div class="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+            <h2 class="text-accent text-sm font-semibold uppercase tracking-wider mb-4">Redis Operation</h2>
 
-            <label>Operation</label>
-            <select x-model="operation" :disabled="loadTestRunning">
+            <label class="block text-sm text-neutral-400 mb-1">Operation</label>
+            <select x-model="operation" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
                 <option value="set">SET (set value)</option>
                 <option value="incrby">INCRBY (increment by)</option>
                 <option value="decrby">DECRBY (decrement by)</option>
@@ -129,301 +104,288 @@
                 <option value="pexpire">PEXPIRE (milliseconds)</option>
             </select>
 
-            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px; cursor: pointer;">
-                <input type="checkbox" x-model="opAllDbs" style="width: auto; margin: 0;" :disabled="loadTestRunning">
+            <label class="flex items-center gap-2 mb-3 cursor-pointer text-sm">
+                <input type="checkbox" x-model="opAllDbs" :disabled="loadTestRunning" class="w-4 h-4 accent-accent">
                 <span>Execute on All DBs in parallel</span>
             </label>
 
             <div x-show="!opAllDbs">
-                <label>Database</label>
-                <select x-model="opDbIndex" :disabled="loadTestRunning">
+                <label class="block text-sm text-neutral-400 mb-1">Database</label>
+                <select x-model="opDbIndex" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
                     <template x-for="(db, i) in databases" :key="i">
                         <option :value="i" x-text="'DB ' + i + ' - ' + db.address"></option>
                     </template>
                 </select>
             </div>
 
-            <label>Key</label>
-            <input type="text" x-model="opKey" placeholder="Enter key name" :disabled="loadTestRunning">
+            <label class="block text-sm text-neutral-400 mb-1">Key</label>
+            <input type="text" x-model="opKey" placeholder="Enter key name" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
 
-            <label x-text="operation === 'expire' ? 'TTL (seconds)' : operation === 'pexpire' ? 'TTL (milliseconds)' : operation === 'set' ? 'Value' : 'Amount'"></label>
-            <textarea x-show="operation === 'set'" x-model="opStrValue" placeholder="Enter value (supports JSON)" :disabled="loadTestRunning" style="min-height: 80px; resize: vertical;"></textarea>
-            <input x-show="operation !== 'set'" type="number" x-model="opValue" placeholder="1" :disabled="loadTestRunning">
+            <label class="block text-sm text-neutral-400 mb-1" x-text="operation === 'expire' ? 'TTL (seconds)' : operation === 'pexpire' ? 'TTL (milliseconds)' : operation === 'set' ? 'Value' : 'Amount'"></label>
+            <textarea x-show="operation === 'set'" x-model="opStrValue" placeholder="Enter value (supports JSON)" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none min-h-[80px] resize-y"></textarea>
+            <input x-show="operation !== 'set'" type="number" x-model="opValue" placeholder="1" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
 
-            <!-- Load Test Mode Toggle -->
-            <label style="display: flex; align-items: center; gap: 8px; margin: 15px 0; cursor: pointer; padding: 10px; background: #0d1b3e; border-radius: 4px;">
-                <input type="checkbox" x-model="loadTestMode" style="width: auto; margin: 0;" :disabled="loadTestRunning">
-                <span style="color: #f90;">Load Test Mode</span>
+            <!-- Load Test Mode -->
+            <label class="flex items-center gap-2 p-3 mb-3 bg-neutral-800 rounded-lg border border-neutral-700 cursor-pointer">
+                <input type="checkbox" x-model="loadTestMode" :disabled="loadTestRunning" class="w-4 h-4 accent-orange-500">
+                <span class="text-orange-400 font-medium">Load Test Mode</span>
             </label>
 
-            <!-- Load Test Options -->
-            <div x-show="loadTestMode" style="background: #0d1b3e; padding: 15px; border-radius: 4px; margin-bottom: 15px;">
-                <label>Concurrent Workers</label>
-                <input type="number" x-model.number="loadTestWorkers" min="1" max="1000" placeholder="10" :disabled="loadTestRunning">
-
-                <label>Duration (seconds)</label>
-                <input type="number" x-model.number="loadTestDuration" min="1" max="3600" placeholder="10" :disabled="loadTestRunning">
-
-                <div style="display: flex; gap: 10px;">
-                    <button @click="startLoadTest()" x-show="!loadTestRunning" style="flex: 1; background: #f90;">Start Load Test</button>
-                    <button @click="stopLoadTest()" x-show="loadTestRunning" style="flex: 1; background: #f66;">Stop Load Test</button>
+            <div x-show="loadTestMode" class="bg-neutral-800 p-4 rounded-lg mb-3 border border-neutral-700">
+                <label class="block text-sm text-neutral-400 mb-1">Concurrent Workers</label>
+                <input type="number" x-model.number="loadTestWorkers" min="1" max="1000" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
+                <label class="block text-sm text-neutral-400 mb-1">Duration (seconds)</label>
+                <input type="number" x-model.number="loadTestDuration" min="1" max="3600" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
+                <div class="flex gap-2">
+                    <button @click="startLoadTest()" x-show="!loadTestRunning" class="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg">Start Load Test</button>
+                    <button @click="stopLoadTest()" x-show="loadTestRunning" class="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg">Stop</button>
                 </div>
 
-                <!-- Live Stats -->
-                <div x-show="loadTestRunning || loadTestStats.total > 0" style="margin-top: 15px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-                        <div class="stat-box">
-                            <div class="stat-label">Total Requests</div>
-                            <div class="stat-value" x-text="loadTestStats.total.toLocaleString()"></div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="stat-label">Errors</div>
-                            <div class="stat-value" :style="loadTestStats.errors > 0 ? 'color: #f66' : ''" x-text="loadTestStats.errors.toLocaleString()"></div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="stat-label">Req/sec</div>
-                            <div class="stat-value" x-text="loadTestStats.rps.toFixed(1)"></div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="stat-label">Min Latency</div>
-                            <div class="stat-value" x-text="(loadTestStats.minLatency || 0).toFixed(2) + 'ms'"></div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="stat-label">Avg Latency</div>
-                            <div class="stat-value" x-text="(loadTestStats.avgLatency || 0).toFixed(2) + 'ms'"></div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="stat-label">Max Latency</div>
-                            <div class="stat-value" x-text="(loadTestStats.maxLatency || 0).toFixed(2) + 'ms'"></div>
-                        </div>
+                <div x-show="loadTestRunning || loadTestStats.total > 0" class="mt-4 grid grid-cols-3 gap-2">
+                    <div class="bg-neutral-900 p-2 rounded text-center border border-neutral-700">
+                        <div class="text-[10px] text-neutral-500 uppercase">Total</div>
+                        <div class="text-accent font-bold" x-text="loadTestStats.total.toLocaleString()"></div>
                     </div>
-                    <div style="margin-top: 10px; font-size: 0.85rem; color: #888;">
-                        <span x-show="loadTestRunning">Running... <span x-text="loadTestElapsed"></span>s elapsed (server-side)</span>
-                        <span x-show="!loadTestRunning && loadTestStats.total > 0">Completed in <span x-text="loadTestStats.duration.toFixed(1)"></span>s</span>
+                    <div class="bg-neutral-900 p-2 rounded text-center border border-neutral-700">
+                        <div class="text-[10px] text-neutral-500 uppercase">Errors</div>
+                        <div class="font-bold" :class="loadTestStats.errors > 0 ? 'text-red-400' : 'text-accent'" x-text="loadTestStats.errors.toLocaleString()"></div>
                     </div>
+                    <div class="bg-neutral-900 p-2 rounded text-center border border-neutral-700">
+                        <div class="text-[10px] text-neutral-500 uppercase">RPS</div>
+                        <div class="text-accent font-bold" x-text="loadTestStats.rps.toFixed(1)"></div>
+                    </div>
+                    <div class="bg-neutral-900 p-2 rounded text-center border border-neutral-700">
+                        <div class="text-[10px] text-neutral-500 uppercase">Min</div>
+                        <div class="text-accent font-bold" x-text="(loadTestStats.minLatency || 0).toFixed(2) + 'ms'"></div>
+                    </div>
+                    <div class="bg-neutral-900 p-2 rounded text-center border border-neutral-700">
+                        <div class="text-[10px] text-neutral-500 uppercase">Avg</div>
+                        <div class="text-accent font-bold" x-text="(loadTestStats.avgLatency || 0).toFixed(2) + 'ms'"></div>
+                    </div>
+                    <div class="bg-neutral-900 p-2 rounded text-center border border-neutral-700">
+                        <div class="text-[10px] text-neutral-500 uppercase">Max</div>
+                        <div class="text-accent font-bold" x-text="(loadTestStats.maxLatency || 0).toFixed(2) + 'ms'"></div>
+                    </div>
+                </div>
+                <div class="mt-2 text-xs text-neutral-500">
+                    <span x-show="loadTestRunning">Running... <span x-text="loadTestElapsed"></span>s elapsed</span>
+                    <span x-show="!loadTestRunning && loadTestStats.total > 0">Completed in <span x-text="loadTestStats.duration.toFixed(1)"></span>s</span>
                 </div>
             </div>
 
-            <!-- Single Execute Button (when not in load test mode) -->
-            <button x-show="!loadTestMode" @click="executeOperation()" x-text="'Execute ' + operation.toUpperCase()"></button>
+            <button x-show="!loadTestMode" @click="executeOperation()" class="w-full py-2 bg-accent hover:bg-accent-hover text-black font-semibold rounded-lg transition" x-text="'Execute ' + operation.toUpperCase()"></button>
 
-            <div x-show="opResult && !opAllDbs && !loadTestMode" class="result" :class="opError ? 'error' : 'success'">
-                <div x-text="opResult"></div>
-            </div>
+            <div x-show="opResult && !opAllDbs && !loadTestMode" class="mt-3 p-3 rounded-lg border-l-4" :class="opError ? 'bg-red-900/30 border-red-500 text-red-400' : 'bg-green-900/30 border-accent text-accent'" x-text="opResult"></div>
 
-            <div x-show="opResults.length > 0 && opAllDbs && !loadTestMode" class="watch-results">
+            <div x-show="opResults.length > 0 && opAllDbs && !loadTestMode" class="mt-3 space-y-2">
                 <template x-for="(result, i) in opResults" :key="i">
-                    <div class="watch-item">
-                        <div class="db" x-text="'DB ' + result.db_index + ' - ' + result.address"></div>
-                        <div class="value" :class="result.error ? 'error' : ''" x-text="result.error || 'Result: ' + result.result"></div>
+                    <div class="p-2 bg-neutral-800 rounded-lg border-l-4 border-accent">
+                        <div class="text-accent text-xs" x-text="'DB ' + result.db_index + ' - ' + result.address"></div>
+                        <div class="font-mono text-sm" :class="result.error ? 'text-red-400' : ''" x-text="result.error || 'Result: ' + result.result"></div>
                     </div>
                 </template>
             </div>
         </div>
 
-        <!-- Right Column: Watch Key -->
-        <div class="panel">
-            <h2>Watch Key (All DBs)</h2>
-            <label>Key to Watch</label>
-            <input type="text" x-model="watchKey" placeholder="Enter key name" @keyup.enter="startWatch()">
+        <!-- Right: Watch Key -->
+        <div class="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+            <h2 class="text-accent text-sm font-semibold uppercase tracking-wider mb-4">Watch Key (All DBs)</h2>
 
-            <label>Interval (ms)</label>
-            <input type="number" x-model.number="watchIntervalMs" min="10" placeholder="1000">
+            <label class="block text-sm text-neutral-400 mb-1">Key to Watch</label>
+            <input type="text" x-model="watchKey" placeholder="Enter key name" @keyup.enter="startWatch()" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
 
-            <div style="display: flex; gap: 10px;">
-                <button @click="startWatch()" style="flex: 1;">Watch</button>
-                <button @click="stopWatch()" class="btn-secondary" style="flex: 1;">Stop</button>
+            <label class="block text-sm text-neutral-400 mb-1">Interval (ms)</label>
+            <input type="number" x-model.number="watchIntervalMs" min="10" placeholder="1000" class="w-full px-3 py-2 mb-3 bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
+
+            <div class="flex gap-2 mb-3">
+                <button @click="startWatch()" class="flex-1 py-2 bg-accent hover:bg-accent-hover text-black font-semibold rounded-lg">Watch</button>
+                <button @click="stopWatch()" class="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700">Stop</button>
             </div>
 
-            <div class="status" x-show="watching">Watching: <span x-text="watchKey"></span> (every <span x-text="watchIntervalMs"></span>ms)</div>
+            <div x-show="watching" class="text-xs text-neutral-500 mb-2">Watching: <span x-text="watchKey"></span> (every <span x-text="watchIntervalMs"></span>ms)</div>
 
-            <!-- Sync Status Indicator -->
-            <div x-show="watchResults.length > 0" style="margin: 10px 0; padding: 10px; border-radius: 4px; text-align: center; font-weight: bold;"
-                 :style="watchValuesMatch() ? 'background: #0a3d0a; color: #0f9;' : 'background: #3d0a0a; color: #f66;'">
+            <div x-show="watchResults.length > 0" class="mb-3 p-3 rounded-lg text-center font-semibold" :class="watchValuesMatch() ? 'bg-green-900/30 text-accent' : 'bg-red-900/30 text-red-400'">
                 <span x-show="watchValuesMatch()">SYNC OK - All values match</span>
-                <span x-show="!watchValuesMatch()">MISMATCH - Values differ across DBs!</span>
+                <span x-show="!watchValuesMatch()">MISMATCH - Values differ!</span>
             </div>
 
-            <div class="watch-results">
+            <div class="space-y-2">
                 <template x-for="(result, i) in watchResults" :key="i">
-                    <div class="watch-item" :style="!result.error && !watchValuesMatch() && result.value !== getExpectedValue() ? 'border-left-color: #f66;' : ''">
-                        <div class="db" x-text="'DB ' + result.db_index + ' - ' + result.address"></div>
-                        <div class="value"
-                             :class="result.error ? 'error' : ''"
-                             :style="!result.error && !watchValuesMatch() && result.value !== getExpectedValue() ? 'color: #f66;' : (!result.error ? 'color: #0f9;' : '')"
-                             x-text="result.error || formatValue(result.value)"></div>
+                    <div class="p-2 bg-neutral-800 rounded-lg border-l-4" :class="!result.error && !watchValuesMatch() && result.value !== getExpectedValue() ? 'border-red-500' : 'border-accent'">
+                        <div class="text-accent text-xs" x-text="'DB ' + result.db_index + ' - ' + result.address"></div>
+                        <div class="font-mono text-sm break-all" :class="result.error ? 'text-red-400' : (!watchValuesMatch() && result.value !== getExpectedValue() ? 'text-red-400' : 'text-accent')" x-text="result.error || formatValue(result.value)"></div>
                     </div>
                 </template>
             </div>
-            <div class="status" x-show="watchResults.length > 0">Last updated: <span x-text="watchUpdated"></span></div>
+            <div x-show="watchResults.length > 0" class="text-xs text-neutral-500 mt-2">Last updated: <span x-text="watchUpdated"></span></div>
         </div>
 
-        <!-- Stats Panel - Full Width -->
-        <div class="panel" style="grid-column: 1 / -1;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h2 style="margin: 0;">Database Stats</h2>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <label style="display: flex; align-items: center; gap: 5px; margin: 0; cursor: pointer;">
-                        <input type="checkbox" x-model="statsAutoRefresh" @change="toggleStatsRefresh()" style="width: auto; margin: 0;">
-                        <span style="font-size: 0.85rem;">Auto-refresh</span>
+        <!-- Stats Panel -->
+        <div class="col-span-3 bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-accent text-sm font-semibold uppercase tracking-wider">Database Stats</h2>
+                <div class="flex gap-3 items-center">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" x-model="statsAutoRefresh" @change="toggleStatsRefresh()" class="w-4 h-4 accent-accent">
+                        <span class="text-neutral-400">Auto-refresh</span>
                     </label>
-                    <button @click="fetchStats()" class="btn-secondary" style="width: auto; padding: 5px 15px; margin: 0;">Refresh</button>
+                    <button @click="fetchStats()" class="px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 text-sm">Refresh</button>
                 </div>
             </div>
 
-            <!-- Stats Table -->
-            <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; white-space: nowrap;">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
                     <thead>
-                        <tr style="background: #0d1b3e; text-align: left;">
-                            <th style="padding: 8px; color: #0f9; position: sticky; left: 0; background: #0d1b3e;">Database</th>
-                            <th style="padding: 8px; text-align: center; color: #888;" colspan="2">Connections</th>
-                            <th style="padding: 8px; text-align: center; color: #888;">Info</th>
-                            <th style="padding: 8px; text-align: center; color: #888;" colspan="11">Commands</th>
-                            <th style="padding: 8px; text-align: center; color: #888;" colspan="3">Latency (μs)</th>
-                            <th style="padding: 8px; text-align: center; color: #888;" colspan="6">Replication</th>
-                            <th style="padding: 8px; text-align: center; color: #888;">Store</th>
+                        <tr class="bg-neutral-800 text-left">
+                            <th class="p-2 text-accent sticky left-0 bg-neutral-800">Database</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="2">Connections</th>
+                            <th class="p-2 text-center text-neutral-500">Info</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="11">Commands</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="3">Latency (μs)</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="6">Replication</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="3">Store</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="5">Gossip</th>
                         </tr>
-                        <tr style="background: #16213e;">
-                            <th style="padding: 8px; position: sticky; left: 0; background: #16213e;"></th>
-                            <th style="padding: 8px; text-align: center;">Active</th>
-                            <th style="padding: 8px; text-align: center;">Total</th>
-                            <th style="padding: 8px; text-align: center;">Uptime</th>
-                            <th style="padding: 8px; text-align: center;">INCR</th>
-                            <th style="padding: 8px; text-align: center;">DECR</th>
-                            <th style="padding: 8px; text-align: center;">GET</th>
-                            <th style="padding: 8px; text-align: center;">SET</th>
-                            <th style="padding: 8px; text-align: center;">MGET</th>
-                            <th style="padding: 8px; text-align: center;">EXPIRE</th>
-                            <th style="padding: 8px; text-align: center;">TTL</th>
-                            <th style="padding: 8px; text-align: center;">KEYS</th>
-                            <th style="padding: 8px; text-align: center;">PING</th>
-                            <th style="padding: 8px; text-align: center;">INFO</th>
-                            <th style="padding: 8px; text-align: center;">Other</th>
-                            <th style="padding: 8px; text-align: center;">INCR</th>
-                            <th style="padding: 8px; text-align: center;">GET</th>
-                            <th style="padding: 8px; text-align: center;">SET</th>
-                            <th style="padding: 8px; text-align: center;">Sent</th>
-                            <th style="padding: 8px; text-align: center;">Recv</th>
-                            <th style="padding: 8px; text-align: center;">Errors</th>
-                            <th style="padding: 8px; text-align: center;">Avg ms</th>
-                            <th style="padding: 8px; text-align: center;">Min ms</th>
-                            <th style="padding: 8px; text-align: center;">Max ms</th>
-                            <th style="padding: 8px; text-align: center;">Keys</th>
+                        <tr class="bg-neutral-900 text-neutral-400 text-xs">
+                            <th class="p-2 sticky left-0 bg-neutral-900"></th>
+                            <th class="p-2 text-center">Active</th>
+                            <th class="p-2 text-center">Total</th>
+                            <th class="p-2 text-center">Uptime</th>
+                            <th class="p-2 text-center">INCR</th>
+                            <th class="p-2 text-center">DECR</th>
+                            <th class="p-2 text-center">GET</th>
+                            <th class="p-2 text-center">SET</th>
+                            <th class="p-2 text-center">MGET</th>
+                            <th class="p-2 text-center">EXPIRE</th>
+                            <th class="p-2 text-center">TTL</th>
+                            <th class="p-2 text-center">KEYS</th>
+                            <th class="p-2 text-center">PING</th>
+                            <th class="p-2 text-center">INFO</th>
+                            <th class="p-2 text-center">Other</th>
+                            <th class="p-2 text-center">INCR</th>
+                            <th class="p-2 text-center">GET</th>
+                            <th class="p-2 text-center">SET</th>
+                            <th class="p-2 text-center">Sent</th>
+                            <th class="p-2 text-center">Recv</th>
+                            <th class="p-2 text-center">Errors</th>
+                            <th class="p-2 text-center">Avg</th>
+                            <th class="p-2 text-center">Min</th>
+                            <th class="p-2 text-center">Max</th>
+                            <th class="p-2 text-center">Keys</th>
+                            <th class="p-2 text-center">Memory</th>
+                            <th class="p-2 text-center">Disk</th>
+                            <th class="p-2 text-center">Alive</th>
+                            <th class="p-2 text-center">Suspect</th>
+                            <th class="p-2 text-center">Dead</th>
+                            <th class="p-2 text-center">Sent</th>
+                            <th class="p-2 text-center">Recv</th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-for="(db, i) in dbStats" :key="i">
-                            <tr style="border-bottom: 1px solid #2a3f5f;">
-                                <td style="padding: 8px; position: sticky; left: 0; background: #16213e;">
-                                    <span style="color: #0f9; font-weight: bold;">DB <span x-text="db.index"></span></span>
-                                    <br><span style="font-size: 0.75rem; color: #888;" x-text="db.address"></span>
-                                    <span x-show="db.error" style="color: #f66; font-size: 0.75rem; display: block;" x-text="db.error"></span>
+                            <tr class="border-b border-neutral-800 hover:bg-neutral-800/50">
+                                <td class="p-2 sticky left-0 bg-neutral-900">
+                                    <span class="text-accent font-bold">DB <span x-text="db.index"></span></span>
+                                    <br><span class="text-xs text-neutral-500" x-text="db.address"></span>
+                                    <span x-show="db.error" class="text-red-400 text-xs block" x-text="db.error"></span>
                                 </td>
-                                <!-- Connections -->
-                                <td style="padding: 8px; text-align: center; color: #0f9; font-weight: bold;" x-text="db.stats?.connections?.active ?? '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats?.connections?.total ?? '-'"></td>
-                                <!-- Uptime -->
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? formatUptime(db.stats.uptime_seconds || 0) : '-'"></td>
-                                <!-- Commands -->
-                                <td style="padding: 8px; text-align: center; color: #0f9;" x-text="db.stats ? (db.stats.commands?.incr || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.decr || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.get || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.set || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.mget || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.expire || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.ttl || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.keys || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.ping || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.info || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.commands?.other || 0).toLocaleString() : '-'"></td>
-                                <!-- Latency -->
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.incr || 0).toLocaleString() + ' µs' : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.get || 0).toLocaleString() + ' µs' : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.latency_avg_us?.set || 0).toLocaleString() + ' µs' : '-'"></td>
-                                <!-- Replication -->
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.replication?.deltas_sent || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.replication?.deltas_received || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" :style="(db.stats?.replication?.send_errors || 0) > 0 ? 'color: #f66;' : ''" x-text="db.stats ? (db.stats.replication?.send_errors || 0).toLocaleString() : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.replication?.latency_avg_ms || 0) : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.replication?.latency_min_ms || 0) : '-'"></td>
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.replication?.latency_max_ms || 0) : '-'"></td>
-                                <!-- Store -->
-                                <td style="padding: 8px; text-align: center;" x-text="db.stats ? (db.stats.store?.keys || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center text-accent font-bold" x-text="db.stats?.connections?.active ?? '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats?.connections?.total ?? '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? formatUptime(db.stats.uptime_seconds || 0) : '-'"></td>
+                                <td class="p-2 text-center text-accent" x-text="db.stats ? (db.stats.commands?.incr || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.decr || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.get || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.set || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.mget || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.expire || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.ttl || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.keys || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.ping || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.info || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.commands?.other || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.latency_avg_us?.incr || 0).toLocaleString() + ' µs' : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.latency_avg_us?.get || 0).toLocaleString() + ' µs' : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.latency_avg_us?.set || 0).toLocaleString() + ' µs' : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.replication?.deltas_sent || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.replication?.deltas_received || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" :class="(db.stats?.replication?.send_errors || 0) > 0 ? 'text-red-400' : ''" x-text="db.stats ? (db.stats.replication?.send_errors || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.replication?.latency_avg_ms || 0) : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.replication?.latency_min_ms || 0) : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.replication?.latency_max_ms || 0) : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.store?.keys || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats?.store ? formatBytes(db.stats.store.memory_bytes || 0) : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats?.store ? formatBytes(db.stats.store.disk_bytes || 0) : '-'"></td>
+                                <td class="p-2 text-center text-accent" x-text="db.stats ? (db.stats.gossip?.peers_alive || 0) : '-'"></td>
+                                <td class="p-2 text-center text-yellow-400" x-text="db.stats ? (db.stats.gossip?.peers_suspect || 0) : '-'"></td>
+                                <td class="p-2 text-center" :class="(db.stats?.gossip?.peers_dead || 0) > 0 ? 'text-red-400' : ''" x-text="db.stats ? (db.stats.gossip?.peers_dead || 0) : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.gossip?.messages_sent || 0).toLocaleString() : '-'"></td>
+                                <td class="p-2 text-center" x-text="db.stats ? (db.stats.gossip?.messages_received || 0).toLocaleString() : '-'"></td>
                             </tr>
                         </template>
                     </tbody>
                 </table>
             </div>
-
-            <div class="status" x-show="statsUpdated">Last updated: <span x-text="statsUpdated"></span></div>
+            <div x-show="statsUpdated" class="text-xs text-neutral-500 mt-2">Last updated: <span x-text="statsUpdated"></span></div>
         </div>
 
-        <!-- Instrumentation Metrics Panel - Full Width -->
-        <div class="panel" style="grid-column: 1 / -1;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h2 style="margin: 0;">Instrumentation Metrics</h2>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <label style="display: flex; align-items: center; gap: 5px; margin: 0; cursor: pointer;">
-                        <input type="checkbox" x-model="metricsAutoRefresh" @change="toggleMetricsRefresh()" style="width: auto; margin: 0;">
-                        <span style="font-size: 0.85rem;">Auto-refresh</span>
+        <!-- Instrumentation Metrics -->
+        <div class="col-span-3 bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-accent text-sm font-semibold uppercase tracking-wider">Instrumentation Metrics</h2>
+                <div class="flex gap-3 items-center">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" x-model="metricsAutoRefresh" @change="toggleMetricsRefresh()" class="w-4 h-4 accent-accent">
+                        <span class="text-neutral-400">Auto-refresh</span>
                     </label>
-                    <button @click="fetchMetrics()" class="btn-secondary" style="width: auto; padding: 5px 15px; margin: 0;">Refresh</button>
+                    <button @click="fetchMetrics()" class="px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 text-sm">Refresh</button>
                 </div>
             </div>
 
-            <!-- Active Load Tests Indicator -->
-            <div x-show="instrumentMetrics.active_load_tests > 0" style="margin-bottom: 15px; padding: 10px; background: #3d2a0a; border-radius: 4px; color: #f90;">
-                Active Load Tests: <span x-text="instrumentMetrics.active_load_tests"></span>
-            </div>
+            <div x-show="instrumentMetrics.active_load_tests > 0" class="mb-4 p-3 bg-orange-900/30 rounded-lg text-orange-400">Active Load Tests: <span x-text="instrumentMetrics.active_load_tests"></span></div>
 
-            <!-- Metrics Table -->
-            <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; white-space: nowrap;">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
                     <thead>
-                        <tr style="background: #0d1b3e; text-align: left;">
-                            <th style="padding: 8px; color: #0f9; position: sticky; left: 0; background: #0d1b3e;">Database</th>
-                            <th style="padding: 8px; text-align: center; color: #888;" colspan="3">Connection Pool</th>
-                            <th style="padding: 8px; text-align: center; color: #888;" colspan="2">Totals</th>
-                            <th style="padding: 8px; text-align: center; color: #888;">Commands</th>
+                        <tr class="bg-neutral-800 text-left">
+                            <th class="p-2 text-accent sticky left-0 bg-neutral-800">Database</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="3">Connection Pool</th>
+                            <th class="p-2 text-center text-neutral-500" colspan="2">Totals</th>
+                            <th class="p-2 text-left text-neutral-500">Commands</th>
                         </tr>
-                        <tr style="background: #16213e;">
-                            <th style="padding: 8px; position: sticky; left: 0; background: #16213e;"></th>
-                            <th style="padding: 8px; text-align: center;">Size</th>
-                            <th style="padding: 8px; text-align: center;">Idle</th>
-                            <th style="padding: 8px; text-align: center;">Active</th>
-                            <th style="padding: 8px; text-align: center;">Calls</th>
-                            <th style="padding: 8px; text-align: center;">Errors</th>
-                            <th style="padding: 8px; text-align: left;">Details (per command)</th>
+                        <tr class="bg-neutral-900 text-neutral-400 text-xs">
+                            <th class="p-2 sticky left-0 bg-neutral-900"></th>
+                            <th class="p-2 text-center">Size</th>
+                            <th class="p-2 text-center">Idle</th>
+                            <th class="p-2 text-center">Active</th>
+                            <th class="p-2 text-center">Calls</th>
+                            <th class="p-2 text-center">Errors</th>
+                            <th class="p-2 text-left">Details (per command)</th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-for="(db, i) in instrumentMetrics.databases || []" :key="i">
-                            <tr style="border-bottom: 1px solid #2a3f5f; vertical-align: top;">
-                                <td style="padding: 8px; position: sticky; left: 0; background: #16213e;">
-                                    <span style="color: #0f9; font-weight: bold;">DB <span x-text="db.db_index"></span></span>
-                                    <br><span style="font-size: 0.75rem; color: #888;" x-text="db.address"></span>
+                            <tr class="border-b border-neutral-800 align-top hover:bg-neutral-800/50">
+                                <td class="p-2 sticky left-0 bg-neutral-900">
+                                    <span class="text-accent font-bold">DB <span x-text="db.db_index"></span></span>
+                                    <br><span class="text-xs text-neutral-500" x-text="db.address"></span>
                                 </td>
-                                <!-- Pool Stats -->
-                                <td style="padding: 8px; text-align: center;" x-text="db.pool_size || 0"></td>
-                                <td style="padding: 8px; text-align: center; color: #888;" x-text="db.pool_idle || 0"></td>
-                                <td style="padding: 8px; text-align: center; color: #0f9;" x-text="db.pool_active || 0"></td>
-                                <!-- Totals -->
-                                <td style="padding: 8px; text-align: center; font-weight: bold;" x-text="(db.total_calls || 0).toLocaleString()"></td>
-                                <td style="padding: 8px; text-align: center;" :style="(db.total_errors || 0) > 0 ? 'color: #f66;' : ''" x-text="(db.total_errors || 0).toLocaleString()"></td>
-                                <!-- Commands Detail -->
-                                <td style="padding: 8px;">
-                                    <div x-show="!db.commands || db.commands.length === 0" style="color: #666;">No commands recorded</div>
-                                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                <td class="p-2 text-center" x-text="db.pool_size || 0"></td>
+                                <td class="p-2 text-center text-neutral-500" x-text="db.pool_idle || 0"></td>
+                                <td class="p-2 text-center text-accent" x-text="db.pool_active || 0"></td>
+                                <td class="p-2 text-center font-bold" x-text="(db.total_calls || 0).toLocaleString()"></td>
+                                <td class="p-2 text-center" :class="(db.total_errors || 0) > 0 ? 'text-red-400' : ''" x-text="(db.total_errors || 0).toLocaleString()"></td>
+                                <td class="p-2">
+                                    <div x-show="!db.commands || db.commands.length === 0" class="text-neutral-500">No commands recorded</div>
+                                    <div class="flex flex-wrap gap-2">
                                         <template x-for="cmd in db.commands || []" :key="cmd.command">
-                                            <div style="background: #0d1b3e; padding: 6px 10px; border-radius: 4px; min-width: 150px;">
-                                                <div style="color: #0f9; font-weight: bold; margin-bottom: 4px;" x-text="cmd.command"></div>
-                                                <div style="font-size: 0.75rem; color: #aaa; display: grid; grid-template-columns: 1fr 1fr; gap: 2px;">
-                                                    <span>Calls:</span><span style="color: #fff;" x-text="cmd.total_calls.toLocaleString()"></span>
-                                                    <span>Errors:</span><span :style="cmd.error_count > 0 ? 'color: #f66;' : 'color: #fff;'" x-text="cmd.error_count.toLocaleString()"></span>
-                                                    <span>Avg:</span><span style="color: #fff;" x-text="(cmd.avg_latency_us / 1000).toFixed(2) + ' ms'"></span>
-                                                    <span>Min:</span><span style="color: #fff;" x-text="(cmd.min_latency_us / 1000).toFixed(2) + ' ms'"></span>
-                                                    <span>Max:</span><span style="color: #fff;" x-text="(cmd.max_latency_us / 1000).toFixed(2) + ' ms'"></span>
+                                            <div class="bg-neutral-800 p-2 rounded-lg min-w-[140px] border border-neutral-700">
+                                                <div class="text-accent font-bold text-xs mb-1" x-text="cmd.command"></div>
+                                                <div class="grid grid-cols-2 gap-x-2 text-[10px] text-neutral-400">
+                                                    <span>Calls:</span><span class="text-neutral-200" x-text="cmd.total_calls.toLocaleString()"></span>
+                                                    <span>Errors:</span><span :class="cmd.error_count > 0 ? 'text-red-400' : 'text-neutral-200'" x-text="cmd.error_count.toLocaleString()"></span>
+                                                    <span>Avg:</span><span class="text-neutral-200" x-text="(cmd.avg_latency_us / 1000).toFixed(2) + ' ms'"></span>
+                                                    <span>Min:</span><span class="text-neutral-200" x-text="(cmd.min_latency_us / 1000).toFixed(2) + ' ms'"></span>
+                                                    <span>Max:</span><span class="text-neutral-200" x-text="(cmd.max_latency_us / 1000).toFixed(2) + ' ms'"></span>
                                                 </div>
                                             </div>
                                         </template>
@@ -434,15 +396,13 @@
                     </tbody>
                 </table>
             </div>
-
-            <div class="status" x-show="metricsUpdated">Last updated: <span x-text="metricsUpdated"></span></div>
+            <div x-show="metricsUpdated" class="text-xs text-neutral-500 mt-2">Last updated: <span x-text="metricsUpdated"></span></div>
         </div>
     </div>
 
     <script>
         function app() {
             return {
-                // Config state
                 showConfig: false,
                 configAddresses: [],
                 configPoolSize: 500,
@@ -467,13 +427,11 @@
                 opAllDbs: false,
                 opResults: [],
 
-                // Load test state
                 loadTestMode: false,
                 loadTestRunning: false,
                 loadTestWorkers: 10,
                 loadTestDuration: 10,
                 loadTestElapsed: 0,
-                loadTestAbort: null,
                 loadTestStats: { total: 0, errors: 0, rps: 0, avgLatency: 0, duration: 0 },
 
                 watchKey: '',
@@ -483,13 +441,11 @@
                 watchInterval: null,
                 watchIntervalMs: 1000,
 
-                // Stats state
                 dbStats: [],
                 statsUpdated: '',
                 statsAutoRefresh: false,
                 statsInterval: null,
 
-                // Instrumentation metrics state
                 instrumentMetrics: { databases: [], active_load_tests: 0 },
                 metricsUpdated: '',
                 metricsAutoRefresh: false,
@@ -502,11 +458,7 @@
                     this.fetchStats();
                     this.fetchMetrics();
                     this.keysInterval = setInterval(() => this.fetchKeys(), 1000);
-
-                    // Show config panel if no databases configured
-                    if (this.databases.length === 0) {
-                        this.showConfig = true;
-                    }
+                    if (this.databases.length === 0) this.showConfig = true;
                 },
 
                 async fetchHealth() {
@@ -515,9 +467,7 @@
                         const data = await res.json();
                         this.databases = data.databases || [];
                         this.totalDbs = this.databases.map((_, i) => i);
-                    } catch (e) {
-                        console.error('Health check failed:', e);
-                    }
+                    } catch (e) { console.error('Health check failed:', e); }
                 },
 
                 async fetchConfig() {
@@ -529,103 +479,48 @@
                             this.configPoolSize = data.config.pool_size || 500;
                         }
                         this.configPath = data.config_path || '';
-                    } catch (e) {
-                        console.error('Fetch config failed:', e);
-                    }
+                    } catch (e) { console.error('Fetch config failed:', e); }
                 },
 
                 async addAddress() {
                     if (!this.newAddress) return;
                     try {
-                        const res = await fetch('/api/config/address', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ address: this.newAddress })
-                        });
+                        const res = await fetch('/api/config/address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: this.newAddress }) });
                         const data = await res.json();
-                        if (data.error) {
-                            this.configMessage = data.error;
-                            this.configError = true;
-                        } else {
-                            this.configMessage = data.message;
-                            this.configError = false;
-                            this.newAddress = '';
-                            await this.fetchConfig();
-                        }
-                    } catch (e) {
-                        this.configMessage = 'Failed to add address: ' + e.message;
-                        this.configError = true;
-                    }
+                        if (data.error) { this.configMessage = data.error; this.configError = true; }
+                        else { this.configMessage = data.message; this.configError = false; this.newAddress = ''; await this.fetchConfig(); }
+                    } catch (e) { this.configMessage = 'Failed: ' + e.message; this.configError = true; }
                     setTimeout(() => this.configMessage = '', 5000);
                 },
 
                 async removeAddress(address) {
                     try {
-                        const res = await fetch(`/api/config/address/${encodeURIComponent(address)}`, {
-                            method: 'DELETE'
-                        });
+                        const res = await fetch(`/api/config/address/${encodeURIComponent(address)}`, { method: 'DELETE' });
                         const data = await res.json();
-                        if (data.error) {
-                            this.configMessage = data.error;
-                            this.configError = true;
-                        } else {
-                            this.configMessage = data.message;
-                            this.configError = false;
-                            await this.fetchConfig();
-                        }
-                    } catch (e) {
-                        this.configMessage = 'Failed to remove address: ' + e.message;
-                        this.configError = true;
-                    }
+                        if (data.error) { this.configMessage = data.error; this.configError = true; }
+                        else { this.configMessage = data.message; this.configError = false; await this.fetchConfig(); }
+                    } catch (e) { this.configMessage = 'Failed: ' + e.message; this.configError = true; }
                     setTimeout(() => this.configMessage = '', 5000);
                 },
 
                 async saveConfig() {
                     try {
-                        const res = await fetch('/api/config', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                redis_addresses: this.configAddresses,
-                                pool_size: this.configPoolSize
-                            })
-                        });
+                        const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ redis_addresses: this.configAddresses, pool_size: this.configPoolSize }) });
                         const data = await res.json();
-                        if (data.error) {
-                            this.configMessage = data.error;
-                            this.configError = true;
-                        } else {
-                            this.configMessage = data.message;
-                            this.configError = false;
-                        }
-                    } catch (e) {
-                        this.configMessage = 'Failed to save config: ' + e.message;
-                        this.configError = true;
-                    }
+                        if (data.error) { this.configMessage = data.error; this.configError = true; }
+                        else { this.configMessage = data.message; this.configError = false; }
+                    } catch (e) { this.configMessage = 'Failed: ' + e.message; this.configError = true; }
                     setTimeout(() => this.configMessage = '', 5000);
                 },
 
                 async reconnect() {
                     try {
-                        this.configMessage = 'Reconnecting...';
-                        this.configError = false;
+                        this.configMessage = 'Reconnecting...'; this.configError = false;
                         const res = await fetch('/api/reconnect', { method: 'POST' });
                         const data = await res.json();
-                        if (data.error) {
-                            this.configMessage = data.error;
-                            this.configError = true;
-                        } else {
-                            this.configMessage = `Connected to ${data.databases} database(s)`;
-                            this.configError = false;
-                            await this.fetchHealth();
-                            this.fetchKeys();
-                            this.fetchStats();
-                            this.fetchMetrics();
-                        }
-                    } catch (e) {
-                        this.configMessage = 'Failed to reconnect: ' + e.message;
-                        this.configError = true;
-                    }
+                        if (data.error) { this.configMessage = data.error; this.configError = true; }
+                        else { this.configMessage = `Connected to ${data.databases} database(s)`; this.configError = false; await this.fetchHealth(); this.fetchKeys(); this.fetchStats(); this.fetchMetrics(); }
+                    } catch (e) { this.configMessage = 'Failed: ' + e.message; this.configError = true; }
                     setTimeout(() => this.configMessage = '', 5000);
                 },
 
@@ -635,159 +530,67 @@
                         const data = await res.json();
                         this.keys = data.keys || [];
                         this.keysUpdated = new Date().toLocaleTimeString();
-                    } catch (e) {
-                        console.error('Fetch keys failed:', e);
-                    }
+                    } catch (e) { console.error('Fetch keys failed:', e); }
                 },
 
-                async selectKey(key) {
-                    this.opKey = key;
-                    this.watchKey = key;
-                    await this.fetchWatchKey();
-                },
+                async selectKey(key) { this.opKey = key; this.watchKey = key; await this.fetchWatchKey(); },
 
                 async deleteKey(key) {
                     if (!confirm(`Delete "${key}" from all databases?`)) return;
                     try {
-                        const res = await fetch(`/api/key/${encodeURIComponent(key)}`, {
-                            method: 'DELETE'
-                        });
+                        const res = await fetch(`/api/key/${encodeURIComponent(key)}`, { method: 'DELETE' });
                         const data = await res.json();
-                        if (data.error) {
-                            alert('Delete failed: ' + data.error);
-                        } else {
-                            await this.fetchKeys();
-                        }
-                    } catch (e) {
-                        alert('Delete failed: ' + e.message);
-                    }
+                        if (data.error) alert('Delete failed: ' + data.error);
+                        else await this.fetchKeys();
+                    } catch (e) { alert('Delete failed: ' + e.message); }
                 },
 
                 async executeOperation() {
-                    if (!this.opKey) {
-                        this.opResult = 'Please enter a key';
-                        this.opError = true;
-                        return;
-                    }
+                    if (!this.opKey) { this.opResult = 'Please enter a key'; this.opError = true; return; }
                     try {
                         let res;
                         if (this.operation === 'set') {
-                            // Use POST for SET to handle JSON and special characters
-                            const headers = {
-                                'Content-Type': 'application/json',
-                                ...(this.opAllDbs ? { 'X-DB-All': '1' } : { 'X-DB': String(this.opDbIndex) })
-                            };
-                            res = await fetch('/api/set', {
-                                method: 'POST',
-                                headers,
-                                body: JSON.stringify({ key: this.opKey, value: this.opStrValue })
-                            });
+                            const headers = { 'Content-Type': 'application/json', ...(this.opAllDbs ? { 'X-DB-All': '1' } : { 'X-DB': String(this.opDbIndex) }) };
+                            res = await fetch('/api/set', { method: 'POST', headers, body: JSON.stringify({ key: this.opKey, value: this.opStrValue }) });
                         } else {
-                            const headers = this.opAllDbs
-                                ? { 'X-DB-All': '1' }
-                                : { 'X-DB': String(this.opDbIndex) };
-                            const url = `/${this.operation}/${encodeURIComponent(this.opKey)}/${encodeURIComponent(this.opValue)}`;
-                            res = await fetch(url, { headers });
+                            const headers = this.opAllDbs ? { 'X-DB-All': '1' } : { 'X-DB': String(this.opDbIndex) };
+                            res = await fetch(`/${this.operation}/${encodeURIComponent(this.opKey)}/${encodeURIComponent(this.opValue)}`, { headers });
                         }
                         const data = await res.json();
-
-                        if (this.opAllDbs) {
-                            this.opResults = data.results || [];
-                            this.opResult = '';
-                        } else {
+                        if (this.opAllDbs) { this.opResults = data.results || []; this.opResult = ''; }
+                        else {
                             this.opResults = [];
-                            if (data.error) {
-                                this.opResult = 'Error: ' + data.error;
-                                this.opError = true;
-                            } else {
-                                this.opResult = `${this.operation.toUpperCase()}: ${data.result} (DB ${data.db_index})`;
-                                this.opError = false;
-                            }
+                            if (data.error) { this.opResult = 'Error: ' + data.error; this.opError = true; }
+                            else { this.opResult = `${this.operation.toUpperCase()}: ${data.result} (DB ${data.db_index})`; this.opError = false; }
                         }
-                    } catch (e) {
-                        this.opResult = 'Request failed: ' + e.message;
-                        this.opError = true;
-                        this.opResults = [];
-                    }
+                    } catch (e) { this.opResult = 'Request failed: ' + e.message; this.opError = true; this.opResults = []; }
                 },
 
                 async startLoadTest() {
-                    if (!this.opKey) {
-                        alert('Please enter a key');
-                        return;
-                    }
-
-                    this.loadTestRunning = true;
-                    this.loadTestElapsed = 0;
+                    if (!this.opKey) { alert('Please enter a key'); return; }
+                    this.loadTestRunning = true; this.loadTestElapsed = 0;
                     this.loadTestStats = { total: 0, errors: 0, rps: 0, avgLatency: 0, minLatency: 0, maxLatency: 0, duration: 0 };
-
-                    // Update elapsed time display (estimate since server handles it)
                     const startTime = Date.now();
-                    const elapsedInterval = setInterval(() => {
-                        this.loadTestElapsed = Math.floor((Date.now() - startTime) / 1000);
-                    }, 100);
-
+                    const elapsedInterval = setInterval(() => { this.loadTestElapsed = Math.floor((Date.now() - startTime) / 1000); }, 100);
                     try {
-                        // Send load test spec to server
-                        const res = await fetch('/api/loadtest', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                operation: this.operation,
-                                key: this.opKey,
-                                value: parseInt(this.opValue) || 0,
-                                string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue),
-                                workers: this.loadTestWorkers,
-                                duration: this.loadTestDuration,
-                                db_index: parseInt(this.opDbIndex) || 0,
-                                all_dbs: this.opAllDbs
-                            })
-                        });
-
+                        const res = await fetch('/api/loadtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: this.operation, key: this.opKey, value: parseInt(this.opValue) || 0, string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue), workers: this.loadTestWorkers, duration: this.loadTestDuration, db_index: parseInt(this.opDbIndex) || 0, all_dbs: this.opAllDbs }) });
                         const data = await res.json();
-
-                        if (data.error) {
-                            alert('Load test error: ' + data.error);
-                        } else {
-                            this.loadTestStats = {
-                                total: data.total_requests,
-                                errors: data.errors,
-                                rps: data.rps,
-                                avgLatency: data.avg_latency_ms,
-                                minLatency: data.min_latency_ms,
-                                maxLatency: data.max_latency_ms,
-                                duration: data.duration
-                            };
-                        }
-                    } catch (e) {
-                        alert('Load test failed: ' + e.message);
-                    }
-
-                    clearInterval(elapsedInterval);
-                    this.loadTestRunning = false;
+                        if (data.error) alert('Load test error: ' + data.error);
+                        else this.loadTestStats = { total: data.total_requests, errors: data.errors, rps: data.rps, avgLatency: data.avg_latency_ms, minLatency: data.min_latency_ms, maxLatency: data.max_latency_ms, duration: data.duration };
+                    } catch (e) { alert('Load test failed: ' + e.message); }
+                    clearInterval(elapsedInterval); this.loadTestRunning = false;
                 },
 
-                stopLoadTest() {
-                    // Server-side test can't be stopped mid-flight
-                    // Could implement with a cancel endpoint if needed
-                },
+                stopLoadTest() {},
 
                 startWatch() {
                     if (!this.watchKey) return;
-                    this.watching = true;
-                    this.fetchWatchKey();
+                    this.watching = true; this.fetchWatchKey();
                     if (this.watchInterval) clearInterval(this.watchInterval);
-                    const interval = Math.max(10, this.watchIntervalMs || 1000);
-                    this.watchInterval = setInterval(() => this.fetchWatchKey(), interval);
+                    this.watchInterval = setInterval(() => this.fetchWatchKey(), Math.max(10, this.watchIntervalMs || 1000));
                 },
 
-                stopWatch() {
-                    this.watching = false;
-                    if (this.watchInterval) {
-                        clearInterval(this.watchInterval);
-                        this.watchInterval = null;
-                    }
-                },
+                stopWatch() { this.watching = false; if (this.watchInterval) { clearInterval(this.watchInterval); this.watchInterval = null; } },
 
                 async fetchWatchKey() {
                     if (!this.watchKey) return;
@@ -796,61 +599,37 @@
                         const data = await res.json();
                         this.watchResults = data.results || [];
                         this.watchUpdated = new Date().toLocaleTimeString();
-                    } catch (e) {
-                        console.error('Watch fetch failed:', e);
-                    }
+                    } catch (e) { console.error('Watch fetch failed:', e); }
                 },
 
-                // Check if all watch values match (ignoring errors)
                 watchValuesMatch() {
-                    const validResults = this.watchResults.filter(r => !r.error);
-                    if (validResults.length < 2) return true;
-                    const firstValue = validResults[0].value;
-                    return validResults.every(r => r.value === firstValue);
+                    const valid = this.watchResults.filter(r => !r.error);
+                    if (valid.length < 2) return true;
+                    return valid.every(r => r.value === valid[0].value);
                 },
 
-                // Get the most common value (expected value)
                 getExpectedValue() {
-                    const validResults = this.watchResults.filter(r => !r.error);
-                    if (validResults.length === 0) return null;
-                    // Count occurrences
+                    const valid = this.watchResults.filter(r => !r.error);
+                    if (valid.length === 0) return null;
                     const counts = {};
-                    validResults.forEach(r => {
-                        counts[r.value] = (counts[r.value] || 0) + 1;
-                    });
-                    // Return most common value
-                    let maxCount = 0;
-                    let expectedValue = null;
-                    for (const [value, count] of Object.entries(counts)) {
-                        if (count > maxCount) {
-                            maxCount = count;
-                            expectedValue = value;
-                        }
-                    }
-                    return expectedValue;
+                    valid.forEach(r => { counts[r.value] = (counts[r.value] || 0) + 1; });
+                    let max = 0, expected = null;
+                    for (const [v, c] of Object.entries(counts)) { if (c > max) { max = c; expected = v; } }
+                    return expected;
                 },
 
-                // Stats functions
                 async fetchStats() {
                     try {
                         const res = await fetch('/api/stats');
                         const data = await res.json();
                         this.dbStats = data.stats || [];
                         this.statsUpdated = new Date().toLocaleTimeString();
-                    } catch (e) {
-                        console.error('Stats fetch failed:', e);
-                    }
+                    } catch (e) { console.error('Stats fetch failed:', e); }
                 },
 
                 toggleStatsRefresh() {
-                    if (this.statsAutoRefresh) {
-                        this.statsInterval = setInterval(() => this.fetchStats(), 1000);
-                    } else {
-                        if (this.statsInterval) {
-                            clearInterval(this.statsInterval);
-                            this.statsInterval = null;
-                        }
-                    }
+                    if (this.statsAutoRefresh) this.statsInterval = setInterval(() => this.fetchStats(), 1000);
+                    else if (this.statsInterval) { clearInterval(this.statsInterval); this.statsInterval = null; }
                 },
 
                 async fetchMetrics() {
@@ -859,42 +638,33 @@
                         const data = await res.json();
                         this.instrumentMetrics = data;
                         this.metricsUpdated = new Date().toLocaleTimeString();
-                    } catch (e) {
-                        console.error('Metrics fetch failed:', e);
-                    }
+                    } catch (e) { console.error('Metrics fetch failed:', e); }
                 },
 
                 toggleMetricsRefresh() {
-                    if (this.metricsAutoRefresh) {
-                        this.metricsInterval = setInterval(() => this.fetchMetrics(), 1000);
-                    } else {
-                        if (this.metricsInterval) {
-                            clearInterval(this.metricsInterval);
-                            this.metricsInterval = null;
-                        }
-                    }
+                    if (this.metricsAutoRefresh) this.metricsInterval = setInterval(() => this.fetchMetrics(), 1000);
+                    else if (this.metricsInterval) { clearInterval(this.metricsInterval); this.metricsInterval = null; }
                 },
 
-                formatUptime(seconds) {
-                    if (seconds < 60) return seconds + 's';
-                    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
-                    const hours = Math.floor(seconds / 3600);
-                    const mins = Math.floor((seconds % 3600) / 60);
-                    return hours + 'h ' + mins + 'm';
+                formatUptime(s) {
+                    if (s < 60) return s + 's';
+                    if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+                    return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
                 },
 
-                formatValue(value) {
-                    if (value === null || value === undefined) return '-';
-                    const num = Number(value);
-                    if (!isNaN(num) && isFinite(num)) {
-                        return num.toLocaleString();
-                    }
-                    // Decode URL-encoded strings
-                    try {
-                        return decodeURIComponent(value);
-                    } catch (e) {
-                        return value;
-                    }
+                formatValue(v) {
+                    if (v === null || v === undefined) return '-';
+                    const n = Number(v);
+                    if (!isNaN(n) && isFinite(n)) return n.toLocaleString();
+                    try { return decodeURIComponent(v); } catch { return v; }
+                },
+
+                formatBytes(bytes) {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
                 }
             };
         }
