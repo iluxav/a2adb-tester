@@ -88,13 +88,33 @@ func New() *FiberServer {
 	}
 
 	var clients []*redis.Client
-	for _, addr := range addresses {
-		addr = strings.TrimSpace(addr)
-		if addr == "" {
+	var statsURLs []string
+
+	for _, addrSpec := range addresses {
+		addrSpec = strings.TrimSpace(addrSpec)
+		if addrSpec == "" {
 			continue
 		}
+
+		// Parse format: host:port or host:port,metricsPort
+		var redisAddr string
+		var metricsPort string = "9190" // default metrics port
+
+		if idx := strings.Index(addrSpec, ","); idx != -1 {
+			// Format: host:port,metricsPort
+			redisAddr = strings.TrimSpace(addrSpec[:idx])
+			metricsPort = strings.TrimSpace(addrSpec[idx+1:])
+		} else {
+			// Format: host:port (use default metrics port)
+			redisAddr = addrSpec
+		}
+
+		// Extract host for stats URL
+		host := strings.Split(redisAddr, ":")[0]
+		statsURLs = append(statsURLs, fmt.Sprintf("http://%s:%s/metrics", host, metricsPort))
+
 		client := redis.NewClient(&redis.Options{
-			Addr:     addr,
+			Addr:     redisAddr,
 			Password: password,
 			DB:       dbNum,
 
@@ -110,30 +130,18 @@ func New() *FiberServer {
 			WriteTimeout: 3 * time.Second,
 		})
 		clients = append(clients, client)
-		log.Printf("Connected to Redis: %s (pool size: %d)", addr, poolSize)
+		log.Printf("Connected to Redis: %s (pool size: %d, metrics port: %s)", redisAddr, poolSize, metricsPort)
 	}
 
 	if len(clients) == 0 {
 		log.Printf("No Redis addresses configured. Use the UI to add addresses.")
 	}
 
-	// Stats URLs configuration
-	// Can be set via REDIS_STATS_URLS (comma-separated) or derived from Redis addresses with port 9090
-	var statsURLs []string
+	// Override stats URLs if explicitly set via environment
 	if statsStr := os.Getenv("REDIS_STATS_URLS"); statsStr != "" {
-		statsURLs = strings.Split(statsStr, ",")
-		for i := range statsURLs {
-			statsURLs[i] = strings.TrimSpace(statsURLs[i])
-		}
-	} else {
-		// Derive from Redis addresses - replace port with 9090
-		for _, addr := range addresses {
-			addr = strings.TrimSpace(addr)
-			if addr == "" {
-				continue
-			}
-			host := strings.Split(addr, ":")[0]
-			statsURLs = append(statsURLs, fmt.Sprintf("http://%s:9090", host))
+		statsURLs = nil
+		for _, url := range strings.Split(statsStr, ",") {
+			statsURLs = append(statsURLs, strings.TrimSpace(url))
 		}
 	}
 

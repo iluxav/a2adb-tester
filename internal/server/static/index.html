@@ -73,7 +73,11 @@
 
         <!-- Left: Keys List -->
         <div class="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
-            <h2 class="text-accent text-sm font-semibold uppercase tracking-wider mb-4">All Keys (All DBs)</h2>
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-accent text-sm font-semibold uppercase tracking-wider whitespace-nowrap">All Keys</h2>
+                <span class="text-xs text-neutral-400 font-mono" x-show="totalDbSize > 0">(<span x-text="totalDbSize.toLocaleString()"></span> total)</span>
+                <input type="text" x-model="keysPattern" @input.debounce.300ms="fetchKeys()" placeholder="*" class="flex-1 px-3 py-1.5 text-sm bg-neutral-800 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none font-mono">
+            </div>
             <div class="max-h-[55vh] overflow-y-auto space-y-2">
                 <template x-for="item in keys" :key="item.key">
                     <div @click="selectKey(item.key)" class="flex justify-between items-center p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg cursor-pointer border border-neutral-700 transition">
@@ -137,6 +141,11 @@
                 <input type="number" x-model.number="loadTestWorkers" min="1" max="1000" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
                 <label class="block text-sm text-neutral-400 mb-1">Duration (seconds)</label>
                 <input type="number" x-model.number="loadTestDuration" min="1" max="3600" :disabled="loadTestRunning" class="w-full px-3 py-2 mb-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-accent focus:outline-none">
+                <label class="flex items-center gap-2 mb-3 cursor-pointer text-sm">
+                    <input type="checkbox" x-model="randomizeKeys" :disabled="loadTestRunning" class="w-4 h-4 accent-accent">
+                    <span class="text-neutral-400">Randomize Keys</span>
+                    <span class="text-neutral-600 text-xs">(key:{uuid})</span>
+                </label>
                 <div class="flex gap-2">
                     <button @click="startLoadTest()" x-show="!loadTestRunning" class="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg">Start Load Test</button>
                     <button @click="stopLoadTest()" x-show="loadTestRunning" class="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg">Stop</button>
@@ -480,6 +489,8 @@
                 keys: [],
                 keysUpdated: '-',
                 keysInterval: null,
+                keysPattern: '*',
+                totalDbSize: 0,
                 totalDbs: [],
 
                 operation: 'incrby',
@@ -498,6 +509,7 @@
                 loadTestDuration: 10,
                 loadTestElapsed: 0,
                 loadTestStats: { total: 0, errors: 0, rps: 0, avgLatency: 0, duration: 0 },
+                randomizeKeys: false,
 
                 watchKey: '',
                 watching: false,
@@ -595,9 +607,11 @@
 
                 async fetchKeys() {
                     try {
-                        const res = await fetch('/api/keys/all');
+                        const pattern = this.keysPattern || '*';
+                        const res = await fetch(`/api/keys/all?pattern=${encodeURIComponent(pattern)}`);
                         const data = await res.json();
                         this.keys = data.keys || [];
+                        this.totalDbSize = data.total_dbsize || 0;
                         this.keysUpdated = new Date().toLocaleTimeString();
                     } catch (e) { console.error('Fetch keys failed:', e); }
                 },
@@ -623,7 +637,8 @@
                             res = await fetch('/api/set', { method: 'POST', headers, body: JSON.stringify({ key: this.opKey, value: this.opStrValue }) });
                         } else {
                             const headers = this.opAllDbs ? { 'X-DB-All': '1' } : { 'X-DB': String(this.opDbIndex) };
-                            res = await fetch(`/${this.operation}/${encodeURIComponent(this.opKey)}/${encodeURIComponent(this.opValue)}`, { headers });
+                            const params = new URLSearchParams({ op: this.operation, key: this.opKey, value: String(this.opValue) });
+                            res = await fetch(`/api/op?${params}`, { headers });
                         }
                         const data = await res.json();
                         if (this.opAllDbs) { this.opResults = data.results || []; this.opResult = ''; }
@@ -643,7 +658,7 @@
                     const elapsedInterval = setInterval(() => { this.loadTestElapsed = Math.floor((Date.now() - startTime) / 1000); }, 100);
                     const isRandom = this.opDbIndex === '' || this.opDbIndex === null;
                     try {
-                        const res = await fetch('/api/loadtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: this.operation, key: this.opKey, value: parseInt(this.opValue) || 0, string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue), workers: this.loadTestWorkers, duration: this.loadTestDuration, db_index: isRandom ? 0 : (parseInt(this.opDbIndex) || 0), all_dbs: this.opAllDbs, random_db: isRandom }) });
+                        const res = await fetch('/api/loadtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: this.operation, key: this.opKey, value: parseInt(this.opValue) || 0, string_value: this.operation === 'set' ? this.opStrValue : String(this.opValue), workers: this.loadTestWorkers, duration: this.loadTestDuration, db_index: isRandom ? 0 : (parseInt(this.opDbIndex) || 0), all_dbs: this.opAllDbs, random_db: isRandom, randomize_keys: this.randomizeKeys }) });
                         const data = await res.json();
                         if (data.error) alert('Load test error: ' + data.error);
                         else this.loadTestStats = { total: data.total_requests, errors: data.errors, rps: data.rps, avgLatency: data.avg_latency_ms, minLatency: data.min_latency_ms, maxLatency: data.max_latency_ms, duration: data.duration };

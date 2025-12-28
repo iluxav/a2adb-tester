@@ -3,9 +3,9 @@ package server
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -38,8 +38,8 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Get("/health", s.healthHandler)
 	s.App.Get("/api/keys", s.ListKeysHandler)
 	s.App.Get("/api/keys/all", s.ListKeysAllHandler)
-	s.App.Get("/api/key/:key/all", s.GetKeyForAllDbHandler)
-	s.App.Delete("/api/key/:key", s.DeleteKeyHandler)
+	s.App.Get("/api/key/*/all", s.GetKeyForAllDbHandler)
+	s.App.Delete("/api/key/*", s.DeleteKeyHandler)
 	s.App.Post("/api/set", s.SetKeyHandler)
 	s.App.Get("/api/stats", s.StatsHandler)
 	s.App.Get("/api/cluster", s.ClusterHandler)
@@ -48,10 +48,10 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Get("/api/config", s.GetConfigHandler)
 	s.App.Post("/api/config", s.SaveConfigHandler)
 	s.App.Post("/api/config/address", s.AddAddressHandler)
-	s.App.Delete("/api/config/address/:address", s.RemoveAddressHandler)
+	s.App.Delete("/api/config/address/*", s.RemoveAddressHandler)
 	s.App.Post("/api/reconnect", s.ReconnectHandler)
-	s.App.Get("/:operation/:key/:number", s.OperationHandler)
-	s.App.Get("/:key", s.GetKeyHandler)
+	s.App.Get("/api/op", s.OperationHandler)
+	s.App.Get("/api/get", s.GetKeyHandler)
 }
 
 func (s *FiberServer) indexHandler(c *fiber.Ctx) error {
@@ -67,7 +67,12 @@ func (s *FiberServer) GetKeyForAllDbHandler(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	key := c.Params("key")
+	key := c.Params("*")
+	if decoded, err := url.QueryUnescape(key); err == nil {
+		key = decoded
+	}
+	// Remove "/all" suffix if present
+	key = strings.TrimSuffix(key, "/all")
 
 	type result struct {
 		idx   int
@@ -166,7 +171,10 @@ func (s *FiberServer) DeleteKeyHandler(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	key := c.Params("key")
+	key := c.Params("*")
+	if decoded, err := url.QueryUnescape(key); err == nil {
+		key = decoded
+	}
 
 	type result struct {
 		idx     int
@@ -242,43 +250,193 @@ type DBStats struct {
 		Total  int `json:"total"`
 	} `json:"connections"`
 	Commands struct {
+		Total  int `json:"total"`
 		Incr   int `json:"incr"`
 		Decr   int `json:"decr"`
 		Get    int `json:"get"`
 		Set    int `json:"set"`
-		Mget   int `json:"mget"`
-		Expire int `json:"expire"`
-		TTL    int `json:"ttl"`
-		Keys   int `json:"keys"`
 		Ping   int `json:"ping"`
 		Info   int `json:"info"`
+		Quota  int `json:"quota"`
 		Other  int `json:"other"`
 	} `json:"commands"`
-	LatencyAvgUs struct {
+	Errors struct {
+		Parse      int `json:"parse"`
+		UnknownCmd int `json:"unknown_cmd"`
+	} `json:"errors"`
+	LatencyP50Us struct {
 		Incr int `json:"incr"`
 		Get  int `json:"get"`
 		Set  int `json:"set"`
-	} `json:"latency_avg_us"`
+		Decr int `json:"decr"`
+	} `json:"latency_p50_us"`
+	LatencyP99Us struct {
+		Incr int `json:"incr"`
+		Get  int `json:"get"`
+		Set  int `json:"set"`
+		Decr int `json:"decr"`
+	} `json:"latency_p99_us"`
 	Replication struct {
 		DeltasSent     int `json:"deltas_sent"`
 		DeltasReceived int `json:"deltas_received"`
-		SendErrors     int `json:"send_errors"`
-		LatencyAvgMs   int `json:"latency_avg_ms"`
-		LatencyMinMs   int `json:"latency_min_ms"`
-		LatencyMaxMs   int `json:"latency_max_ms"`
+		BytesSent      int `json:"bytes_sent"`
+		BytesReceived  int `json:"bytes_received"`
+		Dropped        int `json:"dropped"`
+		LagMax         int `json:"lag_max"`
+		Peers          int `json:"peers"`
+		RttP50Us       int `json:"rtt_p50_us"`
+		RttP99Us       int `json:"rtt_p99_us"`
 	} `json:"replication"`
-	Store struct {
-		Keys        int `json:"keys"`
-		MemoryBytes int `json:"memory_bytes"`
-		DiskBytes   int `json:"disk_bytes"`
-	} `json:"store"`
-	Gossip struct {
-		PeersAlive       int `json:"peers_alive"`
-		PeersSuspect     int `json:"peers_suspect"`
-		PeersDead        int `json:"peers_dead"`
-		MessagesSent     int `json:"messages_sent"`
-		MessagesReceived int `json:"messages_received"`
-	} `json:"gossip"`
+	WAL struct {
+		Writes       int `json:"writes"`
+		BytesWritten int `json:"bytes_written"`
+		Dropped      int `json:"dropped"`
+		SyncFailures int `json:"sync_failures"`
+	} `json:"wal"`
+	Snapshots struct {
+		Created int `json:"created"`
+	} `json:"snapshots"`
+	BufferPool struct {
+		Size   int `json:"size"`
+		Hits   int `json:"hits"`
+		Misses int `json:"misses"`
+	} `json:"buffer_pool"`
+}
+
+// parsePrometheusMetrics parses Prometheus text format into DBStats
+func parsePrometheusMetrics(body string) *DBStats {
+	stats := &DBStats{}
+	lines := strings.Split(body, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Parse metric line: metric_name{labels} value or metric_name value
+		var metricName, labels string
+		var value float64
+
+		if idx := strings.Index(line, "{"); idx != -1 {
+			metricName = line[:idx]
+			endIdx := strings.Index(line, "}")
+			if endIdx == -1 {
+				continue
+			}
+			labels = line[idx+1 : endIdx]
+			valueStr := strings.TrimSpace(line[endIdx+1:])
+			if v, err := strconv.ParseFloat(valueStr, 64); err == nil {
+				value = v
+			}
+		} else {
+			parts := strings.Fields(line)
+			if len(parts) < 2 {
+				continue
+			}
+			metricName = parts[0]
+			if v, err := strconv.ParseFloat(parts[1], 64); err == nil {
+				value = v
+			}
+		}
+
+		intValue := int(value)
+
+		switch metricName {
+		case "quotadb_uptime_seconds":
+			stats.UptimeSeconds = intValue
+		case "quotadb_commands_total":
+			stats.Commands.Total = intValue
+		case "quotadb_commands":
+			if strings.Contains(labels, `type="incr"`) {
+				stats.Commands.Incr = intValue
+			} else if strings.Contains(labels, `type="decr"`) {
+				stats.Commands.Decr = intValue
+			} else if strings.Contains(labels, `type="get"`) {
+				stats.Commands.Get = intValue
+			} else if strings.Contains(labels, `type="set"`) {
+				stats.Commands.Set = intValue
+			} else if strings.Contains(labels, `type="ping"`) {
+				stats.Commands.Ping = intValue
+			} else if strings.Contains(labels, `type="info"`) {
+				stats.Commands.Info = intValue
+			} else if strings.Contains(labels, `type="quota"`) {
+				stats.Commands.Quota = intValue
+			} else if strings.Contains(labels, `type="other"`) {
+				stats.Commands.Other = intValue
+			}
+		case "quotadb_errors_total":
+			if strings.Contains(labels, `type="parse"`) {
+				stats.Errors.Parse = intValue
+			} else if strings.Contains(labels, `type="unknown_cmd"`) {
+				stats.Errors.UnknownCmd = intValue
+			}
+		case "quotadb_connections_total":
+			stats.Connections.Total = intValue
+		case "quotadb_connections_active":
+			stats.Connections.Active = intValue
+		case "quotadb_command_duration_microseconds":
+			if strings.Contains(labels, `quantile="0.5"`) {
+				if strings.Contains(labels, `cmd="incr"`) {
+					stats.LatencyP50Us.Incr = intValue
+				} else if strings.Contains(labels, `cmd="get"`) {
+					stats.LatencyP50Us.Get = intValue
+				} else if strings.Contains(labels, `cmd="set"`) {
+					stats.LatencyP50Us.Set = intValue
+				} else if strings.Contains(labels, `cmd="decr"`) {
+					stats.LatencyP50Us.Decr = intValue
+				}
+			} else if strings.Contains(labels, `quantile="0.99"`) {
+				if strings.Contains(labels, `cmd="incr"`) {
+					stats.LatencyP99Us.Incr = intValue
+				} else if strings.Contains(labels, `cmd="get"`) {
+					stats.LatencyP99Us.Get = intValue
+				} else if strings.Contains(labels, `cmd="set"`) {
+					stats.LatencyP99Us.Set = intValue
+				} else if strings.Contains(labels, `cmd="decr"`) {
+					stats.LatencyP99Us.Decr = intValue
+				}
+			}
+		case "quotadb_replication_deltas_sent":
+			stats.Replication.DeltasSent = intValue
+		case "quotadb_replication_deltas_received":
+			stats.Replication.DeltasReceived = intValue
+		case "quotadb_replication_bytes_sent":
+			stats.Replication.BytesSent = intValue
+		case "quotadb_replication_bytes_received":
+			stats.Replication.BytesReceived = intValue
+		case "quotadb_replication_dropped":
+			stats.Replication.Dropped = intValue
+		case "quotadb_replication_lag_max":
+			stats.Replication.LagMax = intValue
+		case "quotadb_replication_peers":
+			stats.Replication.Peers = intValue
+		case "quotadb_replication_rtt_microseconds":
+			if strings.Contains(labels, `quantile="0.5"`) {
+				stats.Replication.RttP50Us = intValue
+			} else if strings.Contains(labels, `quantile="0.99"`) {
+				stats.Replication.RttP99Us = intValue
+			}
+		case "quotadb_wal_writes":
+			stats.WAL.Writes = intValue
+		case "quotadb_wal_bytes_written":
+			stats.WAL.BytesWritten = intValue
+		case "quotadb_wal_dropped":
+			stats.WAL.Dropped = intValue
+		case "quotadb_wal_sync_failures":
+			stats.WAL.SyncFailures = intValue
+		case "quotadb_snapshots_created":
+			stats.Snapshots.Created = intValue
+		case "quotadb_buffer_pool_size":
+			stats.BufferPool.Size = intValue
+		case "quotadb_buffer_pool_hits":
+			stats.BufferPool.Hits = intValue
+		case "quotadb_buffer_pool_misses":
+			stats.BufferPool.Misses = intValue
+		}
+	}
+
+	return stats
 }
 
 func (s *FiberServer) MetricsHandler(c *fiber.Ctx) error {
@@ -331,14 +489,9 @@ func (s *FiberServer) StatsHandler(c *fiber.Ctx) error {
 				return
 			}
 
-			var stats DBStats
-			if err := json.Unmarshal(body, &stats); err != nil {
-				result.Error = err.Error()
-				results[idx] = result
-				return
-			}
-
-			result.Stats = &stats
+			// Parse Prometheus text format
+			stats := parsePrometheusMetrics(string(body))
+			result.Stats = stats
 			results[idx] = result
 		}(i, url)
 	}
@@ -347,18 +500,16 @@ func (s *FiberServer) StatsHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"stats": results})
 }
 
-// ClusterPeer represents a single peer in the cluster
-type ClusterPeer struct {
-	ReplicaID string `json:"replica_id"`
-	Address   string `json:"address"`
-	State     string `json:"state"` // Alive, Suspect, Dead
-}
-
-// ClusterInfo represents cluster information for a database
+// ClusterInfo represents cluster/replication information for a database
 type ClusterInfo struct {
-	ReplicaID string        `json:"replica_id"`
-	PeerCount int           `json:"peer_count"`
-	Peers     []ClusterPeer `json:"peers"`
+	Version           string `json:"version"`
+	UptimeSeconds     int    `json:"uptime_seconds"`
+	ConnectedClients  int    `json:"connected_clients"`
+	TotalConnections  int    `json:"total_connections"`
+	ReplicationPeers  int    `json:"replication_peers"`
+	DeltasSent        int    `json:"deltas_sent"`
+	DeltasReceived    int    `json:"deltas_received"`
+	ReplicationLagMax int    `json:"replication_lag_max"`
 }
 
 func (s *FiberServer) ClusterHandler(c *fiber.Ctx) error {
@@ -383,56 +534,59 @@ func (s *FiberServer) ClusterHandler(c *fiber.Ctx) error {
 				Address: cli.Options().Addr,
 			}
 
-			cluster := &ClusterInfo{
-				Peers: []ClusterPeer{},
-			}
+			cluster := &ClusterInfo{}
 
-			// Execute CLUSTER INFO
-			infoResult, err := cli.Do(ctx, "CLUSTER", "INFO").Result()
+			// Execute INFO command (replaces CLUSTER INFO)
+			infoResult, err := cli.Do(ctx, "INFO").Result()
 			if err != nil {
+				log.Printf("[ERROR] INFO failed on DB %d (%s): %v", idx, cli.Options().Addr, err)
 				result.Error = err.Error()
 				results[idx] = result
 				return
 			}
 
-			// Parse CLUSTER INFO response (key:value format)
+			// Parse INFO response (key:value format, with # Section headers)
 			if infoStr, ok := infoResult.(string); ok {
 				lines := strings.Split(infoStr, "\n")
 				for _, line := range lines {
 					line = strings.TrimSpace(line)
-					if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
-						switch parts[0] {
-						case "replica_id":
-							cluster.ReplicaID = parts[1]
-						case "peer_count":
-							if n, err := strconv.Atoi(parts[1]); err == nil {
-								cluster.PeerCount = n
-							}
-						}
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
 					}
-				}
-			}
-
-			// Execute CLUSTER PEERS
-			peersResult, err := cli.Do(ctx, "CLUSTER", "PEERS").Result()
-			if err != nil {
-				// CLUSTER PEERS might fail if no peers, continue with what we have
-				result.Cluster = cluster
-				results[idx] = result
-				return
-			}
-
-			// Parse CLUSTER PEERS response (array of "replica_id|address|state")
-			if peersArray, ok := peersResult.([]interface{}); ok {
-				for _, peer := range peersArray {
-					if peerStr, ok := peer.(string); ok {
-						parts := strings.Split(peerStr, "|")
-						if len(parts) >= 3 {
-							cluster.Peers = append(cluster.Peers, ClusterPeer{
-								ReplicaID: parts[0],
-								Address:   parts[1],
-								State:     parts[2],
-							})
+					if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+						key := parts[0]
+						val := strings.TrimSpace(parts[1])
+						switch key {
+						case "quota_db_version":
+							cluster.Version = val
+						case "uptime_in_seconds":
+							if n, err := strconv.Atoi(val); err == nil {
+								cluster.UptimeSeconds = n
+							}
+						case "connected_clients":
+							if n, err := strconv.Atoi(val); err == nil {
+								cluster.ConnectedClients = n
+							}
+						case "total_connections_received":
+							if n, err := strconv.Atoi(val); err == nil {
+								cluster.TotalConnections = n
+							}
+						case "replication_peers":
+							if n, err := strconv.Atoi(val); err == nil {
+								cluster.ReplicationPeers = n
+							}
+						case "deltas_sent":
+							if n, err := strconv.Atoi(val); err == nil {
+								cluster.DeltasSent = n
+							}
+						case "deltas_received":
+							if n, err := strconv.Atoi(val); err == nil {
+								cluster.DeltasReceived = n
+							}
+						case "replication_lag_max":
+							if n, err := strconv.Atoi(val); err == nil {
+								cluster.ReplicationLagMax = n
+							}
 						}
 					}
 				}
@@ -451,9 +605,23 @@ func (s *FiberServer) ListKeysHandler(c *fiber.Ctx) error {
 	ctx := context.Background()
 	client, idx := s.getDB(c)
 
+	// Get limit from query parameter, default to 100
+	limit := c.QueryInt("limit", 100)
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
 	start := time.Now()
-	keys, err := client.Keys(ctx, "*").Result()
-	RecordRedisCommand(idx, client.Options().Addr, "keys", time.Since(start), err)
+	var keys []string
+
+	// Use single SCAN call with limit (not iterator which auto-paginates)
+	scanKeys, _, err := client.Scan(ctx, 0, "*", int64(limit)).Result()
+	if err != nil {
+		log.Printf("[ERROR] SCAN failed on DB %d (%s): %v", idx, client.Options().Addr, err)
+	} else {
+		keys = scanKeys
+	}
+	RecordRedisCommand(idx, client.Options().Addr, "scan", time.Since(start), err)
 
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
@@ -465,30 +633,69 @@ func (s *FiberServer) ListKeysAllHandler(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Get pattern from query parameter, default to "*"
+	pattern := c.Query("pattern", "*")
+	if pattern == "" {
+		pattern = "*"
+	}
+
+	// Get limit from query parameter, default to 100 per DB
+	limit := c.QueryInt("limit", 100)
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
 	type dbKeys struct {
-		idx  int
-		addr string
-		keys []string
-		err  error
+		idx    int
+		addr   string
+		keys   []string
+		dbsize int64
+		err    error
 	}
 
 	resultsChan := make(chan dbKeys, len(s.dbs))
 
-	// Fetch keys from all databases in parallel
+	// Fetch keys and DBSIZE from all databases in parallel using single SCAN call
 	for i, client := range s.dbs {
-		go func(idx int, cli *redis.Client) {
-			keys, err := cli.Keys(ctx, "*").Result()
-			resultsChan <- dbKeys{idx: idx, addr: cli.Options().Addr, keys: keys, err: err}
-		}(i, client)
+		go func(idx int, cli *redis.Client, p string, lim int64) {
+			var keys []string
+			var dbsize int64
+			var err error
+
+			// Get DBSIZE first
+			dbsize, err = cli.DBSize(ctx).Result()
+			if err != nil {
+				log.Printf("[ERROR] DBSIZE failed on DB %d (%s): %v", idx, cli.Options().Addr, err)
+				dbsize = -1
+				err = nil // Continue with key fetch
+			}
+
+			// Use single SCAN call with limit (not iterator which auto-paginates)
+			scanKeys, _, scanErr := cli.Scan(ctx, 0, p, lim).Result()
+			if scanErr != nil {
+				log.Printf("[ERROR] SCAN failed on DB %d (%s): %v", idx, cli.Options().Addr, scanErr)
+				err = scanErr
+			} else {
+				keys = scanKeys
+			}
+
+			resultsChan <- dbKeys{idx: idx, addr: cli.Options().Addr, keys: keys, dbsize: dbsize, err: err}
+		}(i, client, pattern, int64(limit))
 	}
 
 	// Collect results and build a map of key -> list of db indices
 	keyMap := make(map[string][]int)
 	dbAddresses := make(map[int]string)
+	dbSizes := make(map[int]int64)
+	var totalDbSize int64
 
 	for range s.dbs {
 		r := <-resultsChan
 		dbAddresses[r.idx] = r.addr
+		dbSizes[r.idx] = r.dbsize
+		if r.dbsize > 0 {
+			totalDbSize += r.dbsize
+		}
 		if r.err == nil {
 			for _, key := range r.keys {
 				keyMap[key] = append(keyMap[key], r.idx)
@@ -517,23 +724,21 @@ func (s *FiberServer) ListKeysAllHandler(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"keys":      keys,
-		"databases": dbAddresses,
+		"keys":         keys,
+		"databases":    dbAddresses,
+		"db_sizes":     dbSizes,
+		"total_dbsize": totalDbSize,
 	})
 }
 
 func (s *FiberServer) OperationHandler(c *fiber.Ctx) error {
 	ctx := context.Background()
-	operation := c.Params("operation")
-	key := c.Params("key")
-	valueStr := c.Params("number") // Can be number or string value
+	operation := c.Query("op")
+	key := c.Query("key")
+	valueStr := c.Query("value")
 
-	// URL-decode the value for SET operations
-	if decodedKey, err := url.QueryUnescape(key); err == nil {
-		key = decodedKey
-	}
-	if decodedValue, err := url.QueryUnescape(valueStr); err == nil {
-		valueStr = decodedValue
+	if operation == "" || key == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "op and key query parameters are required"})
 	}
 
 	// Validate operation
@@ -604,6 +809,10 @@ func (s *FiberServer) executeOperationWithMetrics(ctx context.Context, client *r
 	// Record metrics
 	RecordRedisCommand(dbIndex, client.Options().Addr, op, time.Since(start), err)
 
+	if err != nil {
+		log.Printf("[ERROR] Redis %s failed on DB %d (%s) key=%s: %v", op, dbIndex, client.Options().Addr, key, err)
+	}
+
 	return result, err
 }
 
@@ -638,15 +847,16 @@ func (s *FiberServer) operationAll(c *fiber.Ctx, ctx context.Context, op, key st
 }
 
 type LoadTestRequest struct {
-	Operation   string `json:"operation"`
-	Key         string `json:"key"`
-	Value       int64  `json:"value"`
-	StringValue string `json:"string_value"`
-	Workers     int    `json:"workers"`
-	Duration    int    `json:"duration"` // seconds
-	DbIndex     int    `json:"db_index"`
-	AllDbs      bool   `json:"all_dbs"`
-	RandomDb    bool   `json:"random_db"`
+	Operation     string `json:"operation"`
+	Key           string `json:"key"`
+	Value         int64  `json:"value"`
+	StringValue   string `json:"string_value"`
+	Workers       int    `json:"workers"`
+	Duration      int    `json:"duration"` // seconds
+	DbIndex       int    `json:"db_index"`
+	AllDbs        bool   `json:"all_dbs"`
+	RandomDb      bool   `json:"random_db"`
+	RandomizeKeys bool   `json:"randomize_keys"`
 }
 
 type LoadTestResult struct {
@@ -714,11 +924,17 @@ func (s *FiberServer) runLoadTest(req LoadTestRequest) LoadTestResult {
 		for time.Now().Before(endTime) {
 			reqStart := time.Now()
 
+			// Generate key with optional UUID suffix
+			key := req.Key
+			if req.RandomizeKeys {
+				key = fmt.Sprintf("%s:%016x%016x", req.Key, rand.Int63(), rand.Int63())
+			}
+
 			var err error
 			if req.AllDbs {
 				// Execute on all DBs
 				for _, client := range s.dbs {
-					_, e := s.executeOperation(ctx, client, req.Operation, req.Key, req.Value, req.StringValue)
+					_, e := s.executeOperation(ctx, client, req.Operation, key, req.Value, req.StringValue)
 					if e != nil {
 						err = e
 					}
@@ -726,14 +942,14 @@ func (s *FiberServer) runLoadTest(req LoadTestRequest) LoadTestResult {
 			} else if req.RandomDb && len(s.dbs) > 0 {
 				// Execute on random DB
 				dbIdx := rand.Intn(len(s.dbs))
-				_, err = s.executeOperation(ctx, s.dbs[dbIdx], req.Operation, req.Key, req.Value, req.StringValue)
+				_, err = s.executeOperation(ctx, s.dbs[dbIdx], req.Operation, key, req.Value, req.StringValue)
 			} else {
 				// Execute on specific DB
 				dbIdx := req.DbIndex
 				if dbIdx < 0 || dbIdx >= len(s.dbs) {
 					dbIdx = 0
 				}
-				_, err = s.executeOperation(ctx, s.dbs[dbIdx], req.Operation, req.Key, req.Value, req.StringValue)
+				_, err = s.executeOperation(ctx, s.dbs[dbIdx], req.Operation, key, req.Value, req.StringValue)
 			}
 
 			latency := float64(time.Since(reqStart).Microseconds()) / 1000.0 // ms
@@ -785,7 +1001,10 @@ func (s *FiberServer) runLoadTest(req LoadTestRequest) LoadTestResult {
 func (s *FiberServer) GetKeyHandler(c *fiber.Ctx) error {
 	ctx := context.Background()
 	client, idx := s.getDB(c)
-	key := c.Params("key")
+	key := c.Query("key")
+	if key == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "key query parameter is required"})
+	}
 
 	start := time.Now()
 	val, err := client.Get(ctx, key).Result()
@@ -848,14 +1067,12 @@ func (s *FiberServer) AddAddressHandler(c *fiber.Ctx) error {
 }
 
 func (s *FiberServer) RemoveAddressHandler(c *fiber.Ctx) error {
-	address := c.Params("address")
-	if address == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "address is required"})
-	}
-
-	// URL decode the address
+	address := c.Params("*")
 	if decoded, err := url.QueryUnescape(address); err == nil {
 		address = decoded
+	}
+	if address == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "address is required"})
 	}
 
 	if err := config.RemoveAddress(address); err != nil {
@@ -910,7 +1127,7 @@ func (s *FiberServer) ReconnectHandler(c *fiber.Ctx) error {
 
 		// Derive stats URL
 		host := strings.Split(addr, ":")[0]
-		statsURLs = append(statsURLs, fmt.Sprintf("http://%s:9090", host))
+		statsURLs = append(statsURLs, fmt.Sprintf("http://%s:9190/metrics", host))
 	}
 
 	s.dbs = clients
